@@ -11,7 +11,7 @@ function getBrowser(ua) {
   if (ua.includes('Safari'))  return 'Safari'
   return 'Unknown'
 }
-
+ 
 export default function BriefPage({ brief, error }) {
   useEffect(() => {
     if (!brief?.id) return
