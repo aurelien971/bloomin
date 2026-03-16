@@ -1,0 +1,380 @@
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/router'
+import Head from 'next/head'
+import {
+  doc, getDoc, collection, query, where, orderBy,
+  getDocs, addDoc, updateDoc, deleteDoc,
+} from 'firebase/firestore'
+import { db } from '../../lib/firebase'
+
+const BRIEF_SECTIONS = [
+  { title: 'Overview',     fields: [{ key: 'productName', label: 'Product name' }, { key: 'productType', label: 'Product type' }, { key: 'productPurpose', label: 'Purpose' }, { key: 'inspiration', label: 'Inspiration' }, { key: 'launchDate', label: 'Launch date' }] },
+  { title: 'Flavour',      fields: [{ key: 'primaryFlavour', label: 'Primary flavour' }, { key: 'secondaryFlavour', label: 'Secondary notes' }, { key: 'flavourExclusions', label: 'Exclusions' }, { key: 'sweetness', label: 'Sweetness' }, { key: 'aftertaste', label: 'Finish' }, { key: 'flavourNotes', label: 'Flavour notes' }] },
+  { title: 'Appearance',   fields: [{ key: 'colourImportance', label: 'Colour importance' }, { key: 'colourDescription', label: 'Colour' }, { key: 'colourInDrink', label: 'Colour in drink' }, { key: 'clarity', label: 'Clarity' }, { key: 'colourReference', label: 'Colour reference' }] },
+  { title: 'Usage',        fields: [{ key: 'uses', label: 'Used in' }, { key: 'doseRate', label: 'Dose rate' }, { key: 'goesInMilk', label: 'Goes in milk' }, { key: 'milkType', label: 'Milk type' }, { key: 'texture', label: 'Texture' }, { key: 'performanceNotes', label: 'Performance notes' }] },
+  { title: 'Ingredients',  fields: [{ key: 'dietary', label: 'Dietary' }, { key: 'sugarBase', label: 'Sugar base' }, { key: 'preservatives', label: 'Preservatives' }, { key: 'ingredientRestrictions', label: 'Restrictions' }, { key: 'allergens', label: 'Allergens' }] },
+  { title: 'Practical',    fields: [{ key: 'packaging', label: 'Packaging' }, { key: 'pumpCompatible', label: 'Pump compatible' }, { key: 'storage', label: 'Storage' }, { key: 'shelfLife', label: 'Shelf life' }, { key: 'certifications', label: 'Certifications' }, { key: 'markets', label: 'Markets' }] },
+  { title: 'Commercial',   fields: [{ key: 'targetCost', label: 'Target cost' }, { key: 'expectedVolume', label: 'Volume' }, { key: 'samplesBy', label: 'Samples by' }, { key: 'sampleAddress', label: 'Sample address' }, { key: 'contactName', label: 'Contact' }, { key: 'contactEmail', label: 'Email' }, { key: 'contactPhone', label: 'Phone' }, { key: 'anythingElse', label: 'Other notes' }] },
+]
+
+const PIPELINE = [
+  { key: 'brief',          label: 'Client Brief',       icon: '📋', who: 'Client',      route: null },
+  { key: 'scoping',        label: 'Ingredient Scoping', icon: '📝', who: 'Dima',        route: (id) => `/scoping/${id}` },
+  { key: 'procurement',    label: 'Procurement',        icon: '🛒', who: 'Chris',       route: (id) => `/procurement/${id}` },
+  { key: 'lab',            label: 'Lab Development',    icon: '🧪', who: 'Dima',        route: (p) => `/lab/${p.briefId}` },
+  { key: 'clientApproval', label: 'Client Approval',    icon: '👤', who: 'Client',      route: null },
+  { key: 'validation',     label: 'Test Batch',         icon: '🏭', who: 'Production',  route: (id) => `/validation/${id}` },
+  { key: 'labTesting',     label: 'Lab Testing',        icon: '🔬', who: 'Lab',         route: (id) => `/labtest/${id}` },
+  { key: 'release',        label: 'Business as Usual',  icon: '✅', who: null,          route: null },
+]
+
+const STATUS = {
+  'complete':    { dot: 'bg-green-400',  badge: 'bg-green-50 text-green-700 border-green-200',  text: 'Complete'    },
+  'in-progress': { dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border-amber-200',  text: 'In progress' },
+  'not-started': { dot: 'bg-gray-200',   badge: 'bg-gray-50 text-gray-400 border-gray-200',     text: 'Not started' },
+  'failed':      { dot: 'bg-red-400',    badge: 'bg-red-50 text-red-700 border-red-200',         text: 'Failed'      },
+}
+
+function stageStatus(product, key) {
+  return product?.stages?.[key]?.status || 'not-started'
+}
+
+export default function ProductPage() {
+  const router  = useRouter()
+  const { id }  = router.query
+
+  const [product,       setProduct]       = useState(null)
+  const [brief,         setBrief]         = useState(null)
+  const [labSheets,     setLabSheets]     = useState([])
+  const [activeTab,     setActiveTab]     = useState('pipeline')
+  const [loading,       setLoading]       = useState(true)
+  const [copied,        setCopied]        = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [creating,      setCreating]      = useState(false)
+  const [approvalModal, setApprovalModal] = useState(false)
+  const [approveVersion,setApproveVersion]= useState('')
+
+  useEffect(() => { if (id) fetchAll() }, [id])
+
+  const fetchAll = async () => {
+    setLoading(true)
+    try {
+      const pSnap = await getDoc(doc(db, 'products', id))
+      if (!pSnap.exists()) { router.push('/'); return }
+      const p = { id: pSnap.id, ...pSnap.data() }
+
+      if (p.briefId) {
+        const [bSnap, lSnap] = await Promise.all([
+          getDoc(doc(db, 'briefs', p.briefId)),
+          getDocs(query(collection(db, 'labSheets'), where('briefId', '==', p.briefId), orderBy('createdAt', 'desc'))),
+        ])
+        const b = bSnap.exists() ? { id: bSnap.id, ...bSnap.data() } : null
+        setBrief(b)
+        setLabSheets(lSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+
+        // Auto-heal: if brief is submitted but stages.brief isn't marked complete yet, fix it
+        if (b?.submitted && p.stages?.brief?.status !== 'complete') {
+          const heal = {
+            'stages.brief.status':      'complete',
+            'stages.brief.completedAt': b.submittedAt || new Date().toISOString(),
+            'stages.brief.completedBy': b.submittedBy || b.formData?.contactName || '',
+            'stages.scoping.status':
+              (!p.stages?.scoping?.status || p.stages?.scoping?.status === 'not-started')
+                ? 'in-progress'
+                : p.stages.scoping.status,
+          }
+          await updateDoc(doc(db, 'products', id), heal)
+          p.stages = { ...p.stages, ...Object.fromEntries(
+            Object.entries(heal).map(([k, v]) => [k.replace('stages.', ''), v])
+          ) }
+          // Rebuild stages properly
+          p.stages = {
+            ...p.stages,
+            brief:   { ...p.stages?.brief,   status: 'complete', completedAt: heal['stages.brief.completedAt'], completedBy: heal['stages.brief.completedBy'] },
+            scoping: { ...p.stages?.scoping, status: heal['stages.scoping.status'] },
+          }
+        }
+      }
+
+      setProduct(p)
+    } catch (e) { console.error(e) }
+    setLoading(false)
+  }
+
+  const copyBriefLink = () => {
+    navigator.clipboard.writeText(`${window.location.origin}/brief/${product.briefId}`)
+    setCopied(true); setTimeout(() => setCopied(false), 2500)
+  }
+
+  const createLabSheet = async () => {
+    if (!product?.briefId) return
+    setCreating(true)
+    try {
+      await addDoc(collection(db, 'labSheets'), {
+        briefId: product.briefId, productName: product.productName,
+        clientName: product.clientName, versionNumber: 1,
+        versionNote: 'Initial version', status: 'draft',
+        createdAt: new Date().toISOString(), data: {},
+      })
+      await updateDoc(doc(db, 'products', id), { 'stages.lab.status': 'in-progress' })
+      router.push(`/lab/${product.briefId}`)
+    } catch (e) { console.error(e); setCreating(false) }
+  }
+
+  const approveLabVersion = async () => {
+    if (!approveVersion) return
+    await updateDoc(doc(db, 'products', id), {
+      'stages.clientApproval.status':          'complete',
+      'stages.clientApproval.approvedVersion': approveVersion,
+      'stages.lab.status':                     'complete',
+      'stages.validation.status':              'in-progress',
+    })
+    setApprovalModal(false)
+    fetchAll()
+  }
+
+  const deleteProduct = async () => {
+    try {
+      await deleteDoc(doc(db, 'products', id))
+      if (product.briefId) await deleteDoc(doc(db, 'briefs', product.briefId))
+      router.push('/')
+    } catch (e) { console.error(e) }
+  }
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><p className="text-gray-400 text-sm">Loading...</p></div>
+  if (!product) return null
+
+  const fd = brief?.formData || {}
+  const approvedVersion = product?.stages?.clientApproval?.approvedVersion
+  const signedOff = labSheets.find(s => s.status === 'signed-off')
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Head><title>{product.productName} — Bloomin NPD</title></Head>
+
+      {/* Header */}
+      <div className="bg-black text-white">
+        <div className="max-w-5xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button onClick={() => router.push('/')} className="text-white/50 hover:text-white transition text-sm">← Back</button>
+              <div className="w-px h-5 bg-white/20" />
+              <div className="flex items-center gap-3">
+                {brief?.clientLogoUrl && (
+                  <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center overflow-hidden flex-shrink-0 p-1">
+                    <img src={brief.clientLogoUrl} alt={product.clientName} className="w-full h-full object-contain" onError={e => e.target.style.display='none'} />
+                  </div>
+                )}
+                <div>
+                  <p className="font-bold text-white text-lg leading-tight">{product.productName}</p>
+                  <p className="text-xs text-white/50 mt-0.5">{product.clientName} · {new Date(product.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={copyBriefLink} className="px-4 py-2 border border-white/20 text-white text-sm font-medium rounded-lg hover:bg-white/10 transition">
+                {copied ? '✓ Copied' : 'Copy brief link'}
+              </button>
+              <button onClick={() => setDeleteConfirm(true)} className="px-4 py-2 border border-red-500/30 text-red-400 text-sm font-medium rounded-lg hover:bg-red-500/10 transition">Delete</button>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 mt-4">
+            {[
+              { key: 'pipeline', label: 'Pipeline' },
+              { key: 'brief',    label: 'Client Brief' },
+            ].map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition ${activeTab === t.key ? 'border-white text-white' : 'border-transparent text-white/40 hover:text-white/70'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-6 py-8">
+
+        {/* ── Pipeline tab ── */}
+        {activeTab === 'pipeline' && (
+          <div className="space-y-3">
+            {PIPELINE.map((stage, i) => {
+              const status = stageStatus(product, stage.key)
+              const style  = STATUS[status] || STATUS['not-started']
+              const stages = product.stages || {}
+
+              // Compute subtitle
+              let sub = ''
+              if (stage.key === 'brief') {
+                if (status === 'complete') {
+                  const completedAt = stages.brief?.completedAt
+                  const completedBy = stages.brief?.completedBy
+                  const dateStr = completedAt
+                    ? new Date(completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                      + ' at '
+                      + new Date(completedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                    : ''
+                  sub = `Completed${dateStr ? ` ${dateStr}` : ''}${completedBy ? ` · by ${completedBy}` : ''}`
+                }
+              }
+              if (stage.key === 'scoping') {
+                if (status === 'in-progress') sub = 'Waiting on Dima'
+                if (status === 'complete')    sub = 'Submitted to Chris ✓'
+              }
+              if (stage.key === 'procurement') {
+                const phase = stages.procurement?.phase
+                const date  = stages.procurement?.expectedDelivery
+                if (phase === 'awaiting-delivery' && date) sub = `Delivery expected: ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+                else if (phase === 'ordering') sub = 'Chris is ordering'
+                else if (phase === 'delivered') sub = 'All delivered ✓'
+              }
+              if (stage.key === 'lab') {
+                const latest = labSheets[0]
+                if (latest) sub = `${labSheets.length} version${labSheets.length !== 1 ? 's' : ''}${signedOff ? ` · V${signedOff.versionNumber} signed off` : ''}`
+              }
+              if (stage.key === 'clientApproval' && approvedVersion) sub = `V${approvedVersion} approved ✓`
+              if (stage.key === 'validation') {
+                const done = stages.validation?.batchesCompleted || 0
+                if (done > 0) sub = `${done}/3 batches complete`
+              }
+              if (stage.key === 'labTesting') {
+                const date = stages.labTesting?.expectedResultsDate
+                if (date) sub = `Results expected: ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+              }
+
+              // Action button
+              let action = null
+              if (stage.key === 'brief') {
+                if (!brief?.submitted) {
+                  action = <button onClick={copyBriefLink} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 font-medium transition">{copied ? '✓ Copied' : 'Copy link'}</button>
+                } else {
+                  action = <button onClick={() => setActiveTab('brief')} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition">View brief →</button>
+                }
+              } else if (stage.key === 'lab') {
+                if (labSheets.length === 0) {
+                  action = <button onClick={createLabSheet} disabled={creating} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition disabled:opacity-40">{creating ? 'Creating...' : '+ Create lab sheet'}</button>
+                } else {
+                  action = <button onClick={() => router.push(`/lab/${product.briefId}`)} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition">Open →</button>
+                }
+              } else if (stage.key === 'clientApproval') {
+                if (!approvedVersion && labSheets.some(s => s.status === 'signed-off')) {
+                  action = <button onClick={() => setApprovalModal(true)} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition">Mark approved →</button>
+                }
+              } else if (stage.route) {
+                const href = stage.route(stage.key === 'lab' ? product : id)
+                action = <button onClick={() => router.push(href)} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition">Open →</button>
+              }
+
+              return (
+                <div key={stage.key} className="bg-white border border-gray-200 rounded-2xl px-5 py-4 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    {/* Progress line */}
+                    <div className="flex flex-col items-center">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-base ${status === 'complete' ? 'bg-green-50' : status === 'in-progress' ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                        {stage.icon}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-gray-900 text-sm">{stage.label}</p>
+                        {stage.who && <span className="text-xs text-gray-400">— {stage.who}</span>}
+                      </div>
+                      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium border ${style.badge}`}>{style.text}</span>
+                    {action}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── Brief tab ── */}
+        {activeTab === 'brief' && (
+          <div>
+            {!brief?.submitted ? (
+              <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center space-y-4">
+                <p className="text-4xl">📬</p>
+                <h2 className="text-lg font-bold text-gray-800">Brief not yet submitted</h2>
+                <p className="text-sm text-gray-400">The client hasn't completed the brief form yet.</p>
+                <button onClick={copyBriefLink} className="inline-flex items-center gap-2 px-5 py-2.5 bg-black text-white text-sm font-semibold rounded-xl hover:bg-gray-900 transition">
+                  {copied ? '✓ Copied' : 'Copy brief link'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {BRIEF_SECTIONS.map(section => {
+                  const filled = section.fields.filter(f => {
+                    const v = fd[f.key]
+                    return v && v !== '' && !(Array.isArray(v) && v.length === 0)
+                  })
+                  if (!filled.length) return null
+                  return (
+                    <div key={section.title} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">{section.title}</h3>
+                      </div>
+                      <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {filled.map(f => (
+                          <div key={f.key} className={['sampleAddress','anythingElse','flavourNotes','performanceNotes','productPurpose','inspiration'].includes(f.key) ? 'md:col-span-2' : ''}>
+                            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{f.label}</p>
+                            <p className="text-sm text-gray-900 leading-relaxed">{Array.isArray(fd[f.key]) ? fd[f.key].join(', ') : fd[f.key]}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Client approval modal */}
+      {approvalModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm space-y-5">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Mark client approval</h2>
+              <p className="text-sm text-gray-400 mt-1">Which lab sheet version did the client approve?</p>
+            </div>
+            <div className="space-y-2">
+              {labSheets.filter(s => s.status === 'signed-off').map(sheet => (
+                <label key={sheet.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition ${approveVersion === String(sheet.versionNumber) ? 'bg-black text-white border-black' : 'border-gray-200 hover:border-gray-400'}`}>
+                  <input type="radio" className="hidden" onChange={() => setApproveVersion(String(sheet.versionNumber))} />
+                  <div>
+                    <p className="text-sm font-semibold">V{sheet.versionNumber}</p>
+                    <p className={`text-xs mt-0.5 ${approveVersion === String(sheet.versionNumber) ? 'text-white/60' : 'text-gray-400'}`}>{sheet.versionNote}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setApprovalModal(false)} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+              <button onClick={approveLabVersion} disabled={!approveVersion} className="flex-1 py-3 bg-black text-white rounded-xl text-sm font-semibold hover:bg-gray-900 transition disabled:opacity-40">Confirm approval</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-sm space-y-4 text-center">
+            <p className="text-2xl">🗑️</p>
+            <h2 className="text-lg font-bold text-gray-900">Delete "{product.productName}"?</h2>
+            <p className="text-sm text-gray-400">This will also delete the client brief. Can't be undone.</p>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setDeleteConfirm(false)} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+              <button onClick={deleteProduct} className="flex-1 py-3 bg-black text-white rounded-xl text-sm font-semibold hover:bg-gray-900 transition">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
