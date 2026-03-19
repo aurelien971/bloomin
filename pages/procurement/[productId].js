@@ -48,7 +48,16 @@ export default function ProcurementPage() {
     setLoading(false)
   }
 
-  const setItem = (i, f, v) => setItems(rows => rows.map((r, idx) => idx === i ? { ...r, [f]: v } : r))
+  const setItem = (i, f, v) => setItems(rows => rows.map((r, idx) => {
+    if (idx !== i) return r
+    const updated = { ...r, [f]: v }
+    // Filling in an expected delivery date implicitly means it's been ordered
+    if (f === 'expectedDelivery' && v) {
+      updated.ordered   = true
+      updated.orderedAt = updated.orderedAt || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    }
+    return updated
+  }))
 
   const toggleOrdered = (i) => setItems(rows => rows.map((r, idx) => idx === i ? {
     ...r,
@@ -123,7 +132,7 @@ export default function ProcurementPage() {
       <Head><title>Procurement — {product?.productName}</title></Head>
 
       <div className="bg-black text-white sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button onClick={() => router.push(`/product/${productId}`)} className="text-white/50 hover:text-white transition text-sm">← Back</button>
             <div className="w-px h-5 bg-white/20" />
@@ -135,17 +144,14 @@ export default function ProcurementPage() {
           <div className="flex items-center gap-3">
             {allDelivered && <span className="px-3 py-1.5 bg-green-500 text-white text-xs font-semibold rounded-full">All delivered ✓</span>}
             {allOrdered && !allDelivered && <span className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-full">Awaiting delivery</span>}
-            <button onClick={save} disabled={saving} className="px-4 py-2 bg-white text-black text-sm font-semibold rounded-lg hover:bg-gray-100 transition disabled:opacity-40">
-              {saving ? 'Saving...' : 'Save'}
-            </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
 
         {/* Status cards */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: 'Ingredients', value: items.length, sub: 'from Dima' },
             { label: 'Ordered', value: `${items.filter(i => i.ordered).length} / ${items.length}`, sub: allOrdered ? 'all ordered ✓' : 'pending' },
@@ -169,33 +175,24 @@ export default function ProcurementPage() {
             {items.map((item, i) => (
               <div key={i} className={`px-6 py-5 transition-colors ${item.delivered ? 'bg-green-50/40' : item.ordered ? 'bg-amber-50/30' : ''}`}>
                 {/* Item header */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${item.delivered ? 'bg-green-400' : item.ordered ? 'bg-amber-400' : 'bg-gray-200'}`} />
-                    <p className="font-semibold text-gray-900">{item.name}</p>
-                    <span className="text-sm text-gray-400">{item.quantity} {item.unit}</span>
-                    {item.notes && <span className="text-xs text-gray-400 italic">— {item.notes}</span>}
+                    <p className="font-semibold text-gray-900 truncate">{item.name}</p>
+                    <span className="text-sm text-gray-400 flex-shrink-0">{item.quantity} {item.unit}</span>
+                    {item.notes && <span className="text-xs text-gray-400 italic hidden sm:inline">— {item.notes}</span>}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => toggleOrdered(i)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${item.ordered ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}
-                    >
-                      {item.ordered ? `✓ Ordered ${item.orderedAt}` : 'Mark ordered'}
-                    </button>
-                    <button
-                      onClick={() => toggleDelivered(i)}
-                      disabled={!item.ordered}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition disabled:opacity-40 disabled:cursor-not-allowed ${item.delivered ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}
-                    >
-                      {item.delivered ? `✓ Delivered ${item.deliveredAt}` : 'Mark delivered'}
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => toggleDelivered(i)}
+                    className={`self-start sm:self-auto px-3 py-1.5 rounded-lg text-xs font-semibold border transition flex-shrink-0 ${item.delivered ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}
+                  >
+                    {item.delivered ? `✓ Delivered ${item.deliveredAt}` : 'Mark delivered'}
+                  </button>
                 </div>
 
                 {/* Supplier fields */}
-                <div className="grid grid-cols-5 gap-3">
-                  <div className="col-span-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2 lg:col-span-1">
                     <Label>Supplier</Label>
                     <Input value={item.supplier} onChange={v => setItem(i, 'supplier', v)} placeholder="Supplier name" />
                   </div>
@@ -222,10 +219,33 @@ export default function ProcurementPage() {
           </div>
         </div>
 
-        {allDelivered && (
-          <div className="bg-green-50 border border-green-200 rounded-2xl px-6 py-5 text-center">
-            <p className="text-sm font-bold text-green-800">✓ All ingredients delivered</p>
-            <p className="text-xs text-green-600 mt-1">Dima is now unblocked and can start experimenting in the lab.</p>
+        {allDelivered ? (
+          <div className="bg-green-50 border border-green-200 rounded-2xl px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-green-800">✓ All ingredients delivered</p>
+              <p className="text-xs text-green-600 mt-1">Dima is now unblocked and can start experimenting in the lab.</p>
+            </div>
+            <button onClick={save} disabled={saving} className="px-4 py-2 border border-green-300 text-green-700 text-sm font-medium rounded-xl hover:bg-green-100 transition self-start sm:self-auto flex-shrink-0">
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        ) : (
+          <div className="bg-white border border-gray-200 rounded-2xl px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-sm text-gray-400">
+              {items.filter(i => i.delivered).length} of {items.length} ingredients delivered
+            </p>
+            <div className="flex items-center gap-3">
+              <button onClick={save} disabled={saving} className="px-5 py-2.5 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition">
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={save}
+                disabled={saving || !allOrdered}
+                className="px-6 py-2.5 bg-black text-white text-sm font-semibold rounded-xl hover:bg-gray-900 transition disabled:opacity-40"
+              >
+                Mark all delivered →
+              </button>
+            </div>
           </div>
         )}
       </div>

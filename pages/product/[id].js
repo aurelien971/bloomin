@@ -18,14 +18,16 @@ const BRIEF_SECTIONS = [
 ]
 
 const PIPELINE = [
-  { key: 'brief',          label: 'Client Brief',       icon: '📋', who: 'Client',      route: null },
-  { key: 'scoping',        label: 'Ingredient Scoping', icon: '📝', who: 'Dima',        route: (id) => `/scoping/${id}` },
-  { key: 'procurement',    label: 'Procurement',        icon: '🛒', who: 'Chris',       route: (id) => `/procurement/${id}` },
-  { key: 'lab',            label: 'Lab Development',    icon: '🧪', who: 'Dima',        route: (p) => `/lab/${p.briefId}` },
-  { key: 'clientApproval', label: 'Client Approval',    icon: '👤', who: 'Client',      route: null },
-  { key: 'validation',     label: 'Test Batch',         icon: '🏭', who: 'Production',  route: (id) => `/validation/${id}` },
-  { key: 'labTesting',     label: 'Lab Testing',        icon: '🔬', who: 'Lab',         route: (id) => `/labtest/${id}` },
-  { key: 'release',        label: 'Business as Usual',  icon: '✅', who: null,          route: null },
+  { key: 'brief',          label: 'Client Brief',           icon: '📋', who: 'Client',      route: null },
+  { key: 'scoping',        label: 'Ingredients & Sourcing', icon: '🧺', who: 'Dima',        route: (id) => `/scoping/${id}` },
+  { key: 'lab',            label: 'Lab Development',        icon: '🧪', who: 'Dima',        route: (p) => `/lab/${p.briefId}` },
+  { key: 'sampleSending',  label: 'Sample Sending',         icon: '📦', who: 'Aurelien',    route: (id) => `/samplesending/${id}` },
+  { key: 'clientSignOff',  label: 'Client Sign-off',        icon: '✍️', who: 'Client',      route: (id) => `/clientsignoff/${id}` },
+  { key: 'validation',     label: 'Test Batch',             icon: '🏭', who: 'Production',  route: (id) => `/validation/${id}` },
+  { key: 'batchDecision',  label: 'Batch Decision',         icon: '✅', who: 'Aurelien',    route: (id) => `/batchdecision/${id}` },
+  { key: 'labTesting',     label: 'Lab Testing',            icon: '🔬', who: 'Lab',         route: (id) => `/labtest/${id}` },
+  { key: 'labelling',      label: 'Labelling',              icon: '🏷️', who: 'Aurelien',    route: (id) => `/labelling/${id}` },
+  { key: 'release',        label: 'Business as Usual',      icon: '✅', who: null,          route: null },
 ]
 
 const STATUS = {
@@ -46,6 +48,7 @@ export default function ProductPage() {
   const [product,       setProduct]       = useState(null)
   const [brief,         setBrief]         = useState(null)
   const [labSheets,     setLabSheets]     = useState([])
+  const [lastVisit,     setLastVisit]     = useState(null)
   const [activeTab,     setActiveTab]     = useState('pipeline')
   const [loading,       setLoading]       = useState(true)
   const [copied,        setCopied]        = useState(false)
@@ -64,13 +67,15 @@ export default function ProductPage() {
       const p = { id: pSnap.id, ...pSnap.data() }
 
       if (p.briefId) {
-        const [bSnap, lSnap] = await Promise.all([
+        const [bSnap, lSnap, vSnap] = await Promise.all([
           getDoc(doc(db, 'briefs', p.briefId)),
           getDocs(query(collection(db, 'labSheets'), where('briefId', '==', p.briefId), orderBy('createdAt', 'desc'))),
+          getDocs(query(collection(db, 'briefs', p.briefId, 'visits'), orderBy('visitedAt', 'desc'))),
         ])
         const b = bSnap.exists() ? { id: bSnap.id, ...bSnap.data() } : null
         setBrief(b)
         setLabSheets(lSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+        if (!vSnap.empty) setLastVisit(vSnap.docs[0].data().visitedAt)
 
         // Auto-heal: if brief is submitted but stages.brief isn't marked complete yet, fix it
         if (b?.submitted && p.stages?.brief?.status !== 'complete') {
@@ -154,28 +159,33 @@ export default function ProductPage() {
 
       {/* Header */}
       <div className="bg-black text-white">
-        <div className="max-w-5xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button onClick={() => router.push('/')} className="text-white/50 hover:text-white transition text-sm">← Back</button>
-              <div className="w-px h-5 bg-white/20" />
-              <div className="flex items-center gap-3">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <button onClick={() => router.push('/')} className="text-white/50 hover:text-white transition text-sm flex-shrink-0">← Back</button>
+              <div className="w-px h-5 bg-white/20 flex-shrink-0" />
+              <div className="flex items-center gap-3 min-w-0">
                 {brief?.clientLogoUrl && (
-                  <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center overflow-hidden flex-shrink-0 p-1">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white flex items-center justify-center overflow-hidden flex-shrink-0 p-1">
                     <img src={brief.clientLogoUrl} alt={product.clientName} className="w-full h-full object-contain" onError={e => e.target.style.display='none'} />
                   </div>
                 )}
-                <div>
-                  <p className="font-bold text-white text-lg leading-tight">{product.productName}</p>
-                  <p className="text-xs text-white/50 mt-0.5">{product.clientName} · {new Date(product.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                <div className="min-w-0">
+                  <p className="font-bold text-white text-base sm:text-lg leading-tight truncate">{product.productName}</p>
+                  <p className="text-xs text-white/50 mt-0.5 truncate">{product.clientName}{product.owner ? ` · ${product.owner}` : ''}</p>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={copyBriefLink} className="px-4 py-2 border border-white/20 text-white text-sm font-medium rounded-lg hover:bg-white/10 transition">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {product.owner && (
+                <span className="px-3 py-1.5 border border-white/20 text-white/60 text-xs rounded-lg hidden sm:block">
+                  {product.owner}
+                </span>
+              )}
+              <button onClick={copyBriefLink} className="px-3 sm:px-4 py-2 border border-white/20 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-white/10 transition hidden sm:block">
                 {copied ? '✓ Copied' : 'Copy brief link'}
               </button>
-              <button onClick={() => setDeleteConfirm(true)} className="px-4 py-2 border border-red-500/30 text-red-400 text-sm font-medium rounded-lg hover:bg-red-500/10 transition">Delete</button>
+              <button onClick={() => setDeleteConfirm(true)} className="px-3 sm:px-4 py-2 border border-red-500/30 text-red-400 text-xs sm:text-sm font-medium rounded-lg hover:bg-red-500/10 transition">Delete</button>
             </div>
           </div>
 
@@ -193,7 +203,7 @@ export default function ProductPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
 
         {/* ── Pipeline tab ── */}
         {activeTab === 'pipeline' && (
@@ -215,27 +225,64 @@ export default function ProductPage() {
                       + new Date(completedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
                     : ''
                   sub = `Completed${dateStr ? ` ${dateStr}` : ''}${completedBy ? ` · by ${completedBy}` : ''}`
+                } else if (lastVisit) {
+                  sub = `Last opened by client: ${lastVisit}`
                 }
               }
               if (stage.key === 'scoping') {
-                if (status === 'in-progress') sub = 'Waiting on Dima'
-                if (status === 'complete')    sub = 'Submitted to Chris ✓'
-              }
-              if (stage.key === 'procurement') {
-                const phase = stages.procurement?.phase
-                const date  = stages.procurement?.expectedDelivery
-                if (phase === 'awaiting-delivery' && date) sub = `Delivery expected: ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
-                else if (phase === 'ordering') sub = 'Chris is ordering'
-                else if (phase === 'delivered') sub = 'All delivered ✓'
+                const p = stages.scoping?.phase
+                const expectedDate = stages.scoping?.expectedDelivery
+                const deliveredAt  = stages.scoping?.deliveredAt
+                if (p === 'draft' || (status === 'in-progress' && !p)) sub = 'Dima listing ingredients'
+                if (p === 'ordering') {
+                  sub = expectedDate
+                    ? `Awaiting delivery · expected ${new Date(expectedDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+                    : 'Awaiting delivery'
+                }
+                if (p === 'delivered' || status === 'complete') {
+                  const fmt = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                  sub = deliveredAt
+                    ? `All delivered · ${fmt(deliveredAt)}`
+                    : expectedDate
+                      ? `All delivered · ${fmt(expectedDate)}`
+                      : 'All delivered ✓'
+                }
               }
               if (stage.key === 'lab') {
                 const latest = labSheets[0]
                 if (latest) sub = `${labSheets.length} version${labSheets.length !== 1 ? 's' : ''}${signedOff ? ` · V${signedOff.versionNumber} signed off` : ''}`
               }
-              if (stage.key === 'clientApproval' && approvedVersion) sub = `V${approvedVersion} approved ✓`
+              if (stage.key === 'sampleSending') {
+                const s = stages.sampleSending
+                if (s?.sentAt) sub = `Sent ${new Date(s.sentAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} · ${s.sentBy || ''}`
+                if (s?.expectedArrival) sub += ` · arrives ${new Date(s.expectedArrival).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+              }
+              if (stage.key === 'clientSignOff') {
+                const cso = stages.clientSignOff
+                if (status === 'in-progress') sub = 'Waiting for client to sign off'
+                if (status === 'complete') {
+                  const d = cso?.signedOffDate ? new Date(cso.signedOffDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+                  sub = [
+                    cso?.signedOffVersion ? `V${cso.signedOffVersion}` : '',
+                    cso?.signedOffBy || '',
+                    d,
+                    cso?.initialOrderVolume ? `${cso.initialOrderVolume} ${cso.initialOrderUnit || 'bottles'}` : '',
+                  ].filter(Boolean).join(' · ')
+                }
+              }
               if (stage.key === 'validation') {
                 const done = stages.validation?.batchesCompleted || 0
                 if (done > 0) sub = `${done}/3 batches complete`
+              }
+              if (stage.key === 'batchDecision') {
+                const bd = stages.batchDecision
+                if (status === 'complete') sub = bd?.decision === 'approved' ? `Approved · ${bd?.approvedBy || ''}` : bd?.decision === 'approved-with-note' ? `Approved with note · ${bd?.approvedBy || ''}` : 'Rejected'
+                if (status === 'in-progress') sub = 'Ready for internal batch decision'
+              }
+              if (stage.key === 'labelling') {
+                const l = stages.labelling
+                if (status === 'complete') sub = `Complete · ${l?.designedBy || ''} label`
+                if (status === 'in-progress') sub = 'Allergens, nutrition, claims & design'
               }
               if (stage.key === 'labTesting') {
                 const date = stages.labTesting?.expectedResultsDate
@@ -256,33 +303,29 @@ export default function ProductPage() {
                 } else {
                   action = <button onClick={() => router.push(`/lab/${product.briefId}`)} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition">Open →</button>
                 }
-              } else if (stage.key === 'clientApproval') {
-                if (!approvedVersion && labSheets.some(s => s.status === 'signed-off')) {
-                  action = <button onClick={() => setApprovalModal(true)} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition">Mark approved →</button>
-                }
               } else if (stage.route) {
                 const href = stage.route(stage.key === 'lab' ? product : id)
                 action = <button onClick={() => router.push(href)} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition">Open →</button>
               }
 
               return (
-                <div key={stage.key} className="bg-white border border-gray-200 rounded-2xl px-5 py-4 flex items-center justify-between">
+                <div key={stage.key} className="bg-white border border-gray-200 rounded-2xl px-4 sm:px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 sm:justify-between">
                   <div className="flex items-center gap-4">
-                    {/* Progress line */}
-                    <div className="flex flex-col items-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-xs font-bold text-gray-300">{i + 1}</span>
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-base ${status === 'complete' ? 'bg-green-50' : status === 'in-progress' ? 'bg-amber-50' : 'bg-gray-50'}`}>
                         {stage.icon}
                       </div>
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-gray-900 text-sm">{stage.label}</p>
                         {stage.who && <span className="text-xs text-gray-400">— {stage.who}</span>}
                       </div>
                       {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 sm:ml-auto pl-12 sm:pl-0">
                     <span className={`text-xs px-2.5 py-1 rounded-full font-medium border ${style.badge}`}>{style.text}</span>
                     {action}
                   </div>

@@ -24,14 +24,16 @@ const TOP_MARKETS = [
 ]
 
 const STAGES = [
-  { key: 'brief',          label: 'Client Brief'       },
-  { key: 'scoping',        label: 'Scoping'            },
-  { key: 'procurement',    label: 'Procurement'        },
-  { key: 'lab',            label: 'Lab'                },
-  { key: 'clientApproval', label: 'Approval'           },
-  { key: 'validation',     label: 'Validation'         },
-  { key: 'labTesting',     label: 'Lab Testing'        },
-  { key: 'release',        label: 'Released'           },
+  { key: 'brief',          label: 'Brief'          },
+  { key: 'scoping',        label: 'Ingredients'    },
+  { key: 'lab',            label: 'Lab'            },
+  { key: 'sampleSending',  label: 'Sample'         },
+  { key: 'clientSignOff',  label: 'Sign-off'       },
+  { key: 'validation',     label: 'Test Batch'     },
+  { key: 'batchDecision',  label: 'Decision'       },
+  { key: 'labTesting',     label: 'Lab Testing'    },
+  { key: 'labelling',      label: 'Labelling'      },
+  { key: 'release',        label: 'Released'       },
 ]
 
 const STATUS_STYLES = {
@@ -72,18 +74,26 @@ function getCurrentStatus(product) {
   }
   if (s.validation?.status === 'in-progress')
     return { label: 'Test batch — waiting on production', emoji: '🏭' }
-  if (s.clientApproval?.status === 'in-progress')
-    return { label: 'Waiting on client approval', emoji: '👤' }
+  if (s.clientSignOff?.status === 'in-progress')
+    return { label: 'Waiting on client sign-off', emoji: '✍️' }
+  if (s.clientSignOff?.status === 'complete') {
+    const vol = s.clientSignOff?.initialOrderVolume
+    return { label: `Signed off${vol ? ` · ${vol} ${s.clientSignOff.initialOrderUnit || 'bottles'}` : ''}`, emoji: '✅' }
+  }
+  if (s.sampleSending?.status === 'in-progress')
+    return { label: 'Sample sending — log shipment', emoji: '📦' }
+  if (s.sampleSending?.status === 'complete' && s.clientSignOff?.status !== 'complete') {
+    const arrival = s.sampleSending?.expectedArrival
+    return { label: `Sample sent · arriving ${arrival ? new Date(arrival).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : 'soon'}`, emoji: '🚚' }
+  }
   if (s.lab?.status === 'in-progress')
     return { label: 'Waiting on Dima · Lab development', emoji: '🧪' }
-  if (s.procurement?.phase === 'awaiting-delivery') {
-    const date = s.procurement?.expectedDelivery
-    return { label: `Waiting on delivery${date ? ` · ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}` : ''}`, emoji: '📦' }
+  if (s.scoping?.phase === 'ordering') {
+    const date = s.scoping?.expectedDelivery
+    return { label: `Awaiting delivery${date ? ` · ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}` : ''}`, emoji: '📦' }
   }
-  if (s.procurement?.status === 'in-progress')
-    return { label: 'Waiting on Chris · Procurement', emoji: '🛒' }
   if (s.scoping?.status === 'in-progress')
-    return { label: 'Waiting on Dima · Ingredient scoping', emoji: '📝' }
+    return { label: 'Waiting on Dima · Ingredients & sourcing', emoji: '🧺' }
   if (s.brief?.status === 'in-progress')
     return { label: 'Waiting on client · Brief', emoji: '📋' }
   return { label: 'Awaiting client brief', emoji: '📋' }
@@ -183,6 +193,7 @@ export default function Dashboard() {
   const [currentUser,      setCurrentUser]      = useState(null)
   const [password,         setPassword]         = useState('')
   const [userName,         setUserName]         = useState('')
+  const [userList,         setUserList]         = useState([])
 
   const [clients,          setClients]          = useState([])
   const [products,         setProducts]         = useState([])
@@ -200,6 +211,8 @@ export default function Dashboard() {
   const [clientForm,       setClientForm]       = useState(EMPTY_CLIENT)
   const [newProductName,   setNewProductName]   = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')
+  const [newProductType,   setNewProductType]   = useState('syrup')
+  const [newProductOwner,  setNewProductOwner]  = useState('')
   const [marketInput,      setMarketInput]      = useState('')
   const [uploadingLogo,    setUploadingLogo]    = useState(false)
 
@@ -222,13 +235,18 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
+    // Fetch user list for login dropdown
+    getDocs(collection(db, 'users')).then(snap => {
+      const names = snap.docs.map(d => d.data().name).filter(Boolean).sort()
+      setUserList(names)
+    }).catch(console.error)
+
     const auth = localStorage.getItem('npd_auth')
     const saved = localStorage.getItem('npd_user')
     if (auth === '1' && saved) {
       setAuthed(true)
       setCurrentUser(JSON.parse(saved))
     } else {
-      // Clear stale auth with no user attached
       localStorage.removeItem('npd_auth')
       localStorage.removeItem('npd_user')
     }
@@ -262,28 +280,33 @@ export default function Dashboard() {
         clientLogoUrl:  client.logoUrl  || '',
         clientMarkets:  client.markets  || [],
         productName:    newProductName.trim(),
-        submitted: false, formData: {}, createdAt: new Date().toISOString(),
+        productType:    newProductType,
+        submitted: false, formData: { productCategory: newProductType }, createdAt: new Date().toISOString(),
       })
       const productRef = await addDoc(collection(db, 'products'), {
         clientId:    selectedClientId,
         clientName:  client.name,
         productName: newProductName.trim(),
+        productType: newProductType,
+        owner:       newProductOwner || currentUser?.name || '',
         briefId:     briefRef.id,
         createdAt:   new Date().toISOString(),
         stages: {
           brief:          { status: 'in-progress' },
           scoping:        { status: 'not-started' },
-          procurement:    { status: 'not-started' },
           lab:            { status: 'not-started' },
-          clientApproval: { status: 'not-started' },
+          sampleSending:  { status: 'not-started' },
+          clientSignOff:  { status: 'not-started' },
           validation:     { status: 'not-started' },
+          batchDecision:  { status: 'not-started' },
           labTesting:     { status: 'not-started' },
+          labelling:      { status: 'not-started' },
           release:        { status: 'not-started' },
         },
       })
       // Write productId back onto brief so BriefForm can advance stages on submit
       await updateDoc(briefRef, { productId: productRef.id })
-      setProductModal(false); setNewProductName(''); setSelectedClientId('')
+      setProductModal(false); setNewProductName(''); setSelectedClientId(''); setNewProductType('syrup'); setNewProductOwner('')
       await fetchAll()
       navigator.clipboard.writeText(`${window.location.origin}/brief/${briefRef.id}`)
       setCopied(briefRef.id); setTimeout(() => setCopied(null), 2500)
@@ -362,23 +385,23 @@ export default function Dashboard() {
   // ── Login screen ──────────────────────────────────────────────────────────
 
   if (!authed) return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-6">
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 gap-8">
       <Head><title>Bloomin — NPD</title></Head>
+      <img
+        src="/logo.png"
+        alt="Bloomin"
+        className="h-14 object-contain brightness-0 invert"
+        onError={e => e.target.style.display='none'}
+      />
       <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-sm space-y-6">
         <div className="text-center">
-          <img
-            src="/logo.png"
-            alt="Bloomin"
-            className="h-14 mx-auto mb-8 object-contain"
-            onError={e => e.target.style.display='none'}
-          />
           <h1 className="text-xl font-bold text-gray-900">NPD Dashboard</h1>
           <p className="text-sm text-gray-400 mt-1">Internal access only</p>
         </div>
         <div className="space-y-3">
           <select value={userName} onChange={e => setUserName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white text-gray-800">
             <option value="">Who are you?</option>
-            {['Tom','Jesse','Aurelien','Ruth','Fiona','Dima','Asif'].map(n => <option key={n} value={n}>{n}</option>)}
+            {userList.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
           <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && login()} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
         </div>
@@ -395,55 +418,64 @@ export default function Dashboard() {
 
       {/* Header */}
       <div className="bg-black text-white">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <img src="/logo.png" alt="Bloomin" className="h-7 object-contain brightness-0 invert" onError={e => e.target.style.display='none'} />
-            <div className="w-px h-5 bg-white/20" />
-            <span className="text-sm font-medium text-white/70">NPD Dashboard</span>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <img src="/logo.png" alt="Bloomin" className="h-6 sm:h-7 object-contain brightness-0 invert flex-shrink-0" onError={e => e.target.style.display='none'} />
+            <div className="w-px h-5 bg-white/20 flex-shrink-0" />
+            <span className="text-xs sm:text-sm font-medium text-white/70 hidden sm:block">NPD Dashboard</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             {currentUser && (
-              <div className="flex items-center gap-3 mr-2">
-                <div className="text-right">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="text-right hidden sm:block">
                   <p className="text-sm font-semibold text-white leading-none">{currentUser.name}</p>
                   <p className="text-xs text-white/50 mt-0.5">{currentUser.role}</p>
                 </div>
+                <span className="text-xs text-white/70 sm:hidden font-medium">{currentUser.name}</span>
                 <button onClick={() => { setAuthed(false); setCurrentUser(null); localStorage.removeItem('npd_auth'); localStorage.removeItem('npd_user') }} className="text-xs text-white/40 hover:text-white/80 transition">
                   Sign out
                 </button>
               </div>
             )}
-            <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true) }} className="px-4 py-2 border border-white/20 text-white text-sm font-medium rounded-lg hover:bg-white/10 transition">
+            <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true) }} className="px-3 sm:px-4 py-2 border border-white/20 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-white/10 transition hidden sm:block">
               + New client
             </button>
-            <button onClick={() => setProductModal(true)} disabled={clients.length === 0} className="px-4 py-2 bg-white text-black text-sm font-semibold rounded-lg hover:bg-gray-100 transition disabled:opacity-40">
+            <button onClick={() => router.push('/suppliers')} className="px-3 sm:px-4 py-2 border border-white/20 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-white/10 transition hidden sm:block">
+              Suppliers
+            </button>
+            <button onClick={() => setProductModal(true)} disabled={clients.length === 0} className="px-3 sm:px-4 py-2 bg-white text-black text-xs sm:text-sm font-semibold rounded-lg hover:bg-gray-100 transition disabled:opacity-40">
               + New product
             </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8 w-full flex gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full flex flex-col sm:flex-row gap-6 sm:gap-8">
 
-        {/* Sidebar */}
-        <div className="w-56 flex-shrink-0 space-y-1">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest px-3 mb-3">Clients</p>
-          <SidebarItem label="All products" count={products.length} active={!activeClient} onClick={() => { setActiveClient(null); setExpanded(null) }} />
-          {loading
-            ? <p className="text-xs text-gray-400 px-3 py-2">Loading...</p>
-            : clients.map(client => (
-              <div key={client.id} className="group relative">
-                <SidebarItem
-                  label={client.name}
-                  count={products.filter(p => p.clientId === client.id).length}
-                  active={activeClient?.id === client.id}
-                  logo={client.logoUrl}
-                  onClick={() => { setActiveClient(client); setExpanded(null) }}
-                />
-                <button onClick={() => openEditClient(client)} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition text-xs text-gray-400 hover:text-black px-1">✏️</button>
-              </div>
-            ))
-          }
+        {/* Sidebar — horizontal scroll on mobile, vertical on desktop */}
+        <div className="sm:w-56 sm:flex-shrink-0">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest px-1 mb-2 sm:mb-3">Clients</p>
+          <div className="flex sm:flex-col gap-2 overflow-x-auto pb-2 sm:pb-0 sm:space-y-1">
+            <SidebarItem label="All" count={products.length} active={!activeClient} onClick={() => { setActiveClient(null); setExpanded(null) }} />
+            {loading
+              ? <p className="text-xs text-gray-400 px-3 py-2">Loading...</p>
+              : clients.map(client => (
+                <div key={client.id} className="group relative flex-shrink-0 sm:flex-shrink">
+                  <SidebarItem
+                    label={client.name}
+                    count={products.filter(p => p.clientId === client.id).length}
+                    active={activeClient?.id === client.id}
+                    logo={client.logoUrl}
+                    onClick={() => { setActiveClient(client); setExpanded(null) }}
+                  />
+                  <button onClick={() => openEditClient(client)} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition text-xs text-gray-400 hover:text-black px-1">✏️</button>
+                </div>
+              ))
+            }
+            <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true) }} className="flex-shrink-0 sm:hidden px-3 py-2 rounded-xl border border-dashed border-gray-300 text-xs text-gray-400 hover:border-gray-500 hover:text-gray-600 transition whitespace-nowrap">
+              + New client
+            </button>
+          </div>
         </div>
 
         {/* Main */}
@@ -482,6 +514,7 @@ export default function Dashboard() {
                           >
                             <div className="min-w-0">
                               <p className="font-semibold text-gray-900 truncate">{product.productName}</p>
+                              {product.owner && <p className="text-xs text-gray-400 mt-0.5">{product.owner}</p>}
                               <p className="text-xs text-gray-400 mt-0.5">
                                 {(() => { const cs = getCurrentStatus(product); return `${cs.emoji} ${cs.label}` })()}
                               </p>
@@ -535,16 +568,34 @@ export default function Dashboard() {
 
       {/* New product modal */}
       {productModal && (
-        <Modal title="New product" sub="Select a client and name the product. The brief link will be copied automatically.">
+        <Modal title="New product" sub="Select a client, choose the product type, and name it. The brief link will be copied automatically.">
           <div className="space-y-3">
             <select value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white">
               <option value="">Select a client...</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Product type</label>
+              <div className="flex gap-2">
+                {[{ key: 'syrup', label: '🫙 Syrup' }, { key: 'other', label: '📦 Other' }].map(t => (
+                  <button key={t.key} onClick={() => setNewProductType(t.key)}
+                    className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold transition ${newProductType === t.key ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <input type="text" placeholder="Product name (e.g. Black Sesame Syrup)" value={newProductName} onChange={e => setNewProductName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createProduct()} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Product owner</label>
+              <select value={newProductOwner} onChange={e => setNewProductOwner(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white">
+                <option value="">Assign to...</option>
+                {userList.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
           </div>
           <div className="flex gap-3 pt-2">
-            <button onClick={() => setProductModal(false)} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+            <button onClick={() => { setProductModal(false); setNewProductType('syrup') }} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
             <button onClick={createProduct} disabled={!selectedClientId || !newProductName.trim()} className="flex-1 py-3 bg-black text-white rounded-xl text-sm font-semibold hover:bg-gray-900 transition disabled:opacity-40">Create & copy brief link</button>
           </div>
         </Modal>

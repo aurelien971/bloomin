@@ -1,17 +1,10 @@
 const CLARITY    = ['Crystal clear', 'Slightly hazy', 'Opaque', 'Thick & opaque', 'Grainy / textured']
-const IMPORTANCE = ['Yes — colour is critical', 'Somewhat important', 'Not really — taste is what matters']
 const END_DRINKS = ['Matcha latte', 'Iced coffee', 'Hot chocolate', 'Milk drink', 'Sparkling water / soda', 'Cocktail / mocktail', 'Smoothie', 'Other']
 
 export default function Step3Appearance({ data, onChange }) {
   const set = (f, v) => onChange({ ...data, [f]: v })
   return (
     <div className="space-y-6">
-
-      <Field label="How important is colour to you?">
-        <div className="space-y-2">
-          {IMPORTANCE.map(o => <Chip key={o} label={o} active={data.colourImportance === o} onClick={() => set('colourImportance', o)} wide />)}
-        </div>
-      </Field>
 
       <Field
         label="What is the end drink?"

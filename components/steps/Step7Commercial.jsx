@@ -58,12 +58,6 @@ export default function Step7Commercial({ data, onChange }) {
         </div>
       </Field>
 
-      <Field label="When do you need the first samples by?">
-        <input type="date" value={data.samplesBy || ''} onChange={e => set('samplesBy', e.target.value)}
-          className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
-        />
-      </Field>
-
       <Field label="Where should we send the samples?">
         <div className="space-y-2">
           <input placeholder="Full name" value={data.sampleName || ''} onChange={e => set('sampleName', e.target.value)}
@@ -102,7 +96,7 @@ export default function Step7Commercial({ data, onChange }) {
 
       <Field label="Anything else we should know?">
         <textarea
-          placeholder="Any other context, constraints, or things that would help us..."
+          placeholder="Performance requirements, constraints, specific inspirations, anything else — e.g. needs to dissolve fast in hot water, or look dramatic poured over ice"
           value={data.anythingElse || ''}
           onChange={e => set('anythingElse', e.target.value)}
           rows={4}

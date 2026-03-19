@@ -4,7 +4,6 @@ import Head from 'next/head'
 import { doc, getDoc, collection, query, where, getDocs, addDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 
-const TEAM = ['Tom', 'Jesse', 'Aurelien', 'Ruth', 'Fiona', 'Dima', 'Asif']
 const LABS  = ['Eurofins', 'Intertek', 'SGS', 'LGC', 'Other']
 
 const EMPTY_TEST = {
@@ -31,8 +30,14 @@ export default function LabTestPage() {
   const [form,     setForm]     = useState(EMPTY_TEST)
   const [loading,  setLoading]  = useState(true)
   const [saving,   setSaving]   = useState(false)
+  const [userList, setUserList] = useState([])
 
   useEffect(() => { if (productId) init() }, [productId])
+  useEffect(() => {
+    getDocs(collection(db, 'users')).then(snap => {
+      setUserList(snap.docs.map(d => d.data().name).filter(Boolean).sort())
+    }).catch(console.error)
+  }, [])
 
   const init = async () => {
     setLoading(true)
@@ -111,39 +116,40 @@ export default function LabTestPage() {
       <Head><title>Lab Testing — {product?.productName}</title></Head>
 
       <div className="bg-black text-white sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button onClick={() => router.push(`/product/${productId}`)} className="text-white/50 hover:text-white transition text-sm">← Back</button>
-            <div className="w-px h-5 bg-white/20" />
-            <div>
-              <p className="font-bold text-white">{product?.productName}</p>
-              <p className="text-xs text-white/50 mt-0.5">{product?.clientName} · Lab Testing</p>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={() => router.push(`/product/${productId}`)} className="text-white/50 hover:text-white transition text-sm flex-shrink-0">← Back</button>
+            <div className="w-px h-5 bg-white/20 flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="font-bold text-white truncate">{product?.productName}</p>
+              <p className="text-xs text-white/50 mt-0.5 hidden sm:block">{product?.clientName} · Lab Testing</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {resultsIn && allPass && (
-              <span className="px-3 py-1.5 bg-green-500 text-white text-xs font-semibold rounded-full">All passed ✓</span>
+              <span className="px-2 sm:px-3 py-1.5 bg-green-500 text-white text-xs font-semibold rounded-full">All passed ✓</span>
             )}
             {resultsIn && !allPass && (
-              <span className="px-3 py-1.5 bg-red-500 text-white text-xs font-semibold rounded-full">Failed — investigate</span>
+              <span className="px-2 sm:px-3 py-1.5 bg-red-500 text-white text-xs font-semibold rounded-full hidden sm:inline">Failed — investigate</span>
             )}
-            <button onClick={() => save(false)} disabled={saving} className="px-4 py-2 border border-white/20 text-white text-sm font-medium rounded-lg hover:bg-white/10 transition">
+            <button onClick={() => save(false)} disabled={saving} className="px-3 sm:px-4 py-2 border border-white/20 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-white/10 transition">
               Save
             </button>
             {!resultsIn && (
               <button
                 onClick={() => save(true)}
                 disabled={saving || !form.sentBy || form.testTypes.length === 0}
-                className="px-4 py-2 bg-white text-black text-sm font-semibold rounded-lg hover:bg-gray-100 transition disabled:opacity-40"
+                className="px-3 sm:px-4 py-2 bg-white text-black text-xs sm:text-sm font-semibold rounded-lg hover:bg-gray-100 transition disabled:opacity-40"
               >
-                Mark results received →
+                <span className="hidden sm:inline">Mark results received →</span>
+                <span className="sm:hidden">Results in →</span>
               </button>
             )}
           </div>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
 
         {/* Submission details */}
         <Card title="Submission details">
@@ -152,7 +158,7 @@ export default function LabTestPage() {
               <Label>Sent by</Label>
               <select value={form.sentBy} onChange={e => set('sentBy', e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white">
                 <option value="">Select...</option>
-                {TEAM.map(t => <option key={t} value={t}>{t}</option>)}
+                {userList.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -202,7 +208,7 @@ export default function LabTestPage() {
               {form.testTypes.includes('shelfLife') && (
                 <div className="border border-gray-100 rounded-xl p-4">
                   <p className="text-sm font-semibold text-gray-800 mb-3">Shelf life</p>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Result / finding</Label>
                       <textarea value={form.results.shelfLife?.result || ''} onChange={e => setResult('shelfLife', 'result', e.target.value)} placeholder="e.g. 18 months at ambient temperature..." rows={2} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none" />
@@ -224,7 +230,7 @@ export default function LabTestPage() {
               {form.testTypes.includes('micro') && (
                 <div className="border border-gray-100 rounded-xl p-4">
                   <p className="text-sm font-semibold text-gray-800 mb-3">Microbiological</p>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Result / finding</Label>
                       <textarea value={form.results.micro?.result || ''} onChange={e => setResult('micro', 'result', e.target.value)} placeholder="e.g. TVC, yeast/mould counts within spec..." rows={2} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none" />

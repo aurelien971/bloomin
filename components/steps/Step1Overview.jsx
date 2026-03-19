@@ -4,10 +4,6 @@ export default function Step1Overview({ data, onChange }) {
   const set = (field, value) => onChange({ ...data, [field]: value })
   return (
     <div className="space-y-6">
-      <Field label="What would you like to call this product?" hint="A working name is totally fine.">
-        <input placeholder="e.g. Spring Strawberry Syrup" value={data.productName || ''} onChange={e => set('productName', e.target.value)} />
-      </Field>
-
       <Field label="Is this a one-off or an ongoing product?">
         <div className="grid grid-cols-2 gap-2">
           {PRODUCT_TYPE.map(o => <Chip key={o} label={o} active={data.productType === o} onClick={() => set('productType', o)} />)}

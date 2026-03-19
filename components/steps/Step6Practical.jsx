@@ -11,7 +11,6 @@ export default function Step6Practical({ data, onChange, brief }) {
     set(field, curr.includes(item) ? curr.filter(d => d !== item) : [...curr, item])
   }
 
-  // Markets from client profile — fall back to manual entry if none stored
   const clientMarkets = brief?.clientMarkets || []
 
   return (
@@ -50,12 +49,6 @@ export default function Step6Practical({ data, onChange, brief }) {
         )}
       </Field>
 
-      <Field label="Does the bottle need to be pump compatible?" hint="Most back-of-bar syrups use a pump dispenser.">
-        <div className="flex gap-2">
-          {['Yes', 'No', 'Not sure'].map(o => <Chip key={o} label={o} active={data.pumpCompatible === o} onClick={() => set('pumpCompatible', o)} />)}
-        </div>
-      </Field>
-
       <Field label="Where will it be stored?">
         <div className="flex gap-2">
           {['Ambient', 'Refrigerated', 'Not sure'].map(o => <Chip key={o} label={o} active={data.storage === o} onClick={() => set('storage', o)} />)}
@@ -91,70 +84,84 @@ export default function Step6Practical({ data, onChange, brief }) {
         </div>
       </Field>
 
-      <Field label="Which markets is this going into?" hint="Select all that apply.">
-        {clientMarkets.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {clientMarkets.map(m => (
-              <button key={m} type="button" onClick={() => toggle('markets', m)}
-                className={`px-3 py-2 rounded-xl text-sm font-medium border transition-all ${(data.markets||[]).includes(m) ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-green-400'}`}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-        ) : (
-          // Fallback if no client markets stored
-          <MarketFreeInput data={data} set={set} />
-        )}
-        {/* Let them add extra markets beyond what's in the client profile */}
-        {clientMarkets.length > 0 && (
-          <div className="mt-3">
-            <p className="text-xs text-gray-400 mb-2">Not listed above? Add it:</p>
-            <MarketFreeInput data={data} set={set} existingClientMarkets={clientMarkets} />
-          </div>
-        )}
+      <Field label="Which markets is this going into?" hint="Your account markets are pre-loaded — remove any that don't apply to this product, and add extras below.">
+        <MarketSelector data={data} set={set} clientMarkets={clientMarkets} />
       </Field>
 
     </div>
   )
 }
 
-function MarketFreeInput({ data, set, existingClientMarkets = [] }) {
-  const { useState } = require('react')
+function MarketSelector({ data, set, clientMarkets = [] }) {
+  const { useState, useEffect } = require('react')
   const [input, setInput] = useState('')
 
-  const addMarket = () => {
+  // Initialise: if markets not yet set, default to all client markets selected
+  useEffect(() => {
+    if (!data.markets) set('markets', clientMarkets)
+  }, [])
+
+  const markets     = data.markets || clientMarkets
+  const isSelected  = (m) => markets.includes(m)
+
+  const toggle = (m) => {
+    set('markets', isSelected(m) ? markets.filter(x => x !== m) : [...markets, m])
+  }
+
+  const addCustom = () => {
     if (!input.trim()) return
-    const curr = data.markets || []
-    if (!curr.includes(input.trim())) set('markets', [...curr, input.trim()])
+    if (!markets.includes(input.trim())) set('markets', [...markets, input.trim()])
     setInput('')
   }
 
-  // Show only manually-added markets (not from client profile)
-  const manualMarkets = (data.markets || []).filter(m => !existingClientMarkets.includes(m))
+  // Show all client markets as toggleable, plus any custom ones
+  const customMarkets = markets.filter(m => !clientMarkets.includes(m))
 
   return (
-    <div>
-      <div className="flex gap-2">
-        <input
-          className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
-          placeholder="Type a market and press Add"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addMarket())}
-        />
-        <button type="button" onClick={addMarket} className="px-4 py-3 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition">Add</button>
-      </div>
-      {manualMarkets.length > 0 && (
-        <div className="flex flex-wrap gap-2 mt-2">
-          {manualMarkets.map(m => (
+    <div className="space-y-3">
+      {clientMarkets.length > 0 && (
+        <div>
+          <p className="text-xs text-gray-400 mb-2">From your account — tap to remove if not applicable to this product:</p>
+          <div className="flex flex-wrap gap-2">
+            {clientMarkets.map(m => (
+              <button key={m} type="button" onClick={() => toggle(m)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
+                  isSelected(m)
+                    ? 'bg-green-50 border-green-200 text-green-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-400 line-through'
+                }`}>
+                {m}
+                {isSelected(m)
+                  ? <span className="text-green-400 font-bold leading-none text-xs">×</span>
+                  : <span className="text-gray-400 text-xs">↩</span>
+                }
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {customMarkets.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {customMarkets.map(m => (
             <span key={m} className="flex items-center gap-1.5 bg-green-50 text-green-700 text-sm font-medium px-3 py-1.5 rounded-full border border-green-200">
               {m}
-              <button type="button" onClick={() => set('markets', (data.markets||[]).filter(x => x !== m))} className="text-green-400 hover:text-green-700 font-bold leading-none">×</button>
+              <button type="button" onClick={() => set('markets', markets.filter(x => x !== m))} className="text-green-400 hover:text-green-700 font-bold leading-none">×</button>
             </span>
           ))}
         </div>
       )}
+
+      <div className="flex gap-2">
+        <input
+          className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+          placeholder="Add another market..."
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCustom())}
+        />
+        <button type="button" onClick={addCustom} className="px-4 py-3 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition">Add</button>
+      </div>
     </div>
   )
 }
