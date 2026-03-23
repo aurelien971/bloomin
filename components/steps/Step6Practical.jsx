@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react'
+
 const SHELF_LIFE_OPTIONS = ['3 months', '6 months', '12 months', '18 months', '24 months', 'Other']
 
 export default function Step6Practical({ data, onChange, brief }) {
@@ -83,7 +85,6 @@ export default function Step6Practical({ data, onChange, brief }) {
 }
 
 function MarketSelector({ data, set, clientMarkets = [] }) {
-  const { useState, useEffect } = require('react')
   const [input, setInput] = useState('')
 
   useEffect(() => {

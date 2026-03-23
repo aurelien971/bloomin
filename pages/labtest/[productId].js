@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { doc, getDoc, collection, query, where, getDocs, addDoc, updateDoc } from 'firebase/firestore'
@@ -274,6 +275,8 @@ export default function LabTestPage() {
           </Card>
         )}
       </div>
+
+      <FeedbackWidget page="labtesting" pageId={productId} />
     </div>
   )
 }

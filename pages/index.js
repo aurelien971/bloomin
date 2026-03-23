@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import FeedbackWidget from '../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import {
@@ -278,6 +279,14 @@ export default function Dashboard() {
   const createProduct = async () => {
     if (!selectedClientId || !newProductName.trim()) return
     const client = clients.find(c => c.id === selectedClientId)
+
+    // Generate unique 4-letter code — check for collisions
+    const existing = new Set(products.map(p => p.code).filter(Boolean))
+    let code
+    do {
+      code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 23)]).join('')
+    } while (existing.has(code))
+
     try {
       const briefRef = await addDoc(collection(db, 'briefs'), {
         clientId: selectedClientId, clientName: client.name,
@@ -285,6 +294,7 @@ export default function Dashboard() {
         clientMarkets:  client.markets  || [],
         productName:    newProductName.trim(),
         productType:    newProductType,
+        code,
         submitted: false, formData: { productCategory: newProductType }, createdAt: new Date().toISOString(),
       })
       const productRef = await addDoc(collection(db, 'products'), {
@@ -293,6 +303,7 @@ export default function Dashboard() {
         productName: newProductName.trim(),
         productType: newProductType,
         owner:       newProductOwner || currentUser?.name || '',
+        code,
         briefId:     briefRef.id,
         createdAt:   new Date().toISOString(),
         stages: {
@@ -308,7 +319,6 @@ export default function Dashboard() {
           release:        { status: 'not-started' },
         },
       })
-      // Write productId back onto brief so BriefForm can advance stages on submit
       await updateDoc(briefRef, { productId: productRef.id })
       setProductModal(false); setNewProductName(''); setSelectedClientId(''); setNewProductType('syrup'); setNewProductOwner('')
       await fetchAll()
@@ -504,11 +514,11 @@ export default function Dashboard() {
                       <div className="py-1">
                         <button onClick={() => { router.push('/suppliers'); setUserMenuOpen(false) }}
                           className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">
-                          Suppliers
+                          View suppliers
                         </button>
                         <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true); setUserMenuOpen(false) }}
                           className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">
-                          + New client
+                          Add new client
                         </button>
                       </div>
                       <div className="border-t border-gray-100 py-1">
@@ -603,6 +613,7 @@ export default function Dashboard() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-gray-900 truncate">{product.productName}</p>
+                          {product.code && <span className="text-xs font-mono font-bold text-gray-400 flex-shrink-0">#{product.code}</span>}
                           {product.owner && <span className="text-xs text-gray-400 hidden sm:inline">{product.owner}</span>}
                         </div>
                         <p className="text-xs text-gray-400 mt-0.5 truncate">
@@ -818,6 +829,8 @@ export default function Dashboard() {
           </div>
         </Modal>
       )}
+
+      <FeedbackWidget page="dashboard" currentUser={currentUser} />
     </div>
   )
 }

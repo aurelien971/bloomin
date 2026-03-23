@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { doc, getDoc, collection, query, where, orderBy, getDocs } from 'firebase/firestore'
@@ -344,6 +345,8 @@ export default function ReleasePage() {
         )}
 
       </div>
+
+      <FeedbackWidget page="release" pageId={productId} />
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import {
@@ -172,7 +173,10 @@ export default function ProductPage() {
                 )}
                 <div className="min-w-0">
                   <p className="font-bold text-white text-base sm:text-lg leading-tight truncate">{product.productName}</p>
-                  <p className="text-xs text-white/50 mt-0.5 truncate">{product.clientName}{product.owner ? ` · ${product.owner}` : ''}</p>
+                  <p className="text-xs text-white/50 mt-0.5 truncate">
+                    {product.clientName}{product.owner ? ` · ${product.owner}` : ''}
+                    {product.code ? <span className="font-mono ml-1 text-white/40">#{product.code}</span> : ''}
+                  </p>
                 </div>
               </div>
             </div>
@@ -421,6 +425,8 @@ export default function ProductPage() {
           </div>
         </div>
       )}
+
+      <FeedbackWidget page="product" pageId={id} />
     </div>
   )
 }

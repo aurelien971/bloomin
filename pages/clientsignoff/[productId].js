@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import {
@@ -333,6 +334,8 @@ export default function ClientSignOffPage() {
           </div>
         )}
       </div>
+
+      <FeedbackWidget page="clientsignoff" pageId={productId} />
     </div>
   )
 }

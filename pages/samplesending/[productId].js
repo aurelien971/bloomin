@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { doc, getDoc, collection, getDocs, updateDoc } from 'firebase/firestore'
@@ -307,6 +308,8 @@ export default function SampleSendingPage() {
           </div>
         )}
       </div>
+
+      <FeedbackWidget page="samplesending" pageId={productId} />
     </div>
   )
 }

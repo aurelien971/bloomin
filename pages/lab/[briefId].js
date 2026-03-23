@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { db, storage } from '../../lib/firebase'
@@ -134,7 +135,7 @@ export default function LabSheet() {
   const [scopedIngredients, setScopedIngredients] = useState([])
   const [userList,          setUserList]          = useState([])
   const [factories,         setFactories]         = useState([])  // from Firestore
-  const [nextUid,           setNextUid]           = useState('001')
+  const [nextUid,           setNextUid]           = useState(null)
   const [activeSection,     setActiveSection]     = useState('recipe')
   const [briefOpen,         setBriefOpen]         = useState({ recipe: true, specs: true, application: true, production: true })
   const toggleBrief = (s) => setBriefOpen(b => ({ ...b, [s]: !b[s] }))
@@ -162,16 +163,14 @@ export default function LabSheet() {
     if (docs.length > 0) {
       setActiveId(docs[0].id); setData({ ...EMPTY_DATA, ...docs[0].data }); setIsSignedOff(docs[0].status === 'signed-off')
     }
-    // Compute next global UID across ALL lab sheets in the company
+    // Get product code for sample UID labelling
     try {
-      const allSnap = await getDocs(collection(db, 'labSheets'))
-      const highest = allSnap.docs.reduce((max, d) => {
-        const uid = d.data().sampleUid
-        if (!uid) return max
-        const num = parseInt(uid.replace(/\D/g, ''), 10)
-        return isNaN(num) ? max : Math.max(max, num)
-      }, 0)
-      setNextUid(String(highest + 1).padStart(3, '0'))
+      const bSnap2 = await getDoc(doc(db, 'briefs', briefId))
+      const productId = bSnap2.data()?.productId
+      if (productId) {
+        const pSnap = await getDoc(doc(db, 'products', productId))
+        if (pSnap.exists()) setNextUid(pSnap.data().code || null)
+      }
     } catch (e) { console.error(e) }
     // Load cooks for version modal
     try {
@@ -194,7 +193,7 @@ export default function LabSheet() {
     if (!brief || !versionName.trim()) return
     setSaving(true)
     const vNum = versions.length + 1
-    const sampleUid = nextUid
+    const sampleUid = nextUid ? `${nextUid}-V${vNum}` : `V${vNum}`
     const newDoc = {
       briefId, productName: brief.productName, clientName: brief.clientName,
       versionNumber: vNum, versionName: versionName.trim(),
@@ -205,7 +204,6 @@ export default function LabSheet() {
     const docRef = await addDoc(collection(db, 'labSheets'), newDoc)
     const nv = { id: docRef.id, ...newDoc }
     setVersions(v => [nv, ...v]); setActiveId(docRef.id); setIsSignedOff(false)
-    setNextUid(String(parseInt(sampleUid, 10) + 1).padStart(3, '0'))
     setVersionModal(false); setVersionNote(''); setVersionName(''); setVersionCook('')
     setSaving(false)
   }
@@ -917,10 +915,12 @@ export default function LabSheet() {
 
             <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sample UID</p>
-                <p className="text-xs text-gray-400 mt-0.5">Company-wide reference number — used on labels and lab records</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sample ID</p>
+                <p className="text-xs text-gray-400 mt-0.5">Used on the physical sample label</p>
               </div>
-              <span className="text-lg font-mono font-bold text-black">#{nextUid}</span>
+              <span className="text-lg font-mono font-bold text-black">
+                {nextUid ? `#${nextUid}-V${versions.length + 1}` : `V${versions.length + 1}`}
+              </span>
             </div>
 
             <div className="space-y-3">
@@ -973,6 +973,7 @@ export default function LabSheet() {
           </div>
         </div>
       )}
+      <FeedbackWidget page="lab" pageId={briefId} />
     </div>
   )
 }

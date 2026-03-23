@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import FeedbackWidget from '../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import {
@@ -400,6 +401,8 @@ export default function SuppliersPage() {
           </div>
         </div>
       )}
+
+      <FeedbackWidget page="suppliers" />
     </div>
   )
 }
