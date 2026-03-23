@@ -109,7 +109,7 @@ function StagePipeline({ product }) {
         return (
           <div key={s.key} className="flex items-center gap-1">
             {i > 0 && <div className={`w-3 h-px ${status === 'not-started' ? 'bg-gray-200' : 'bg-gray-300'}`} />}
-            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_STYLES[status].dot}`} title={s.label} />
+            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${(STATUS_STYLES[status] || STATUS_STYLES['not-started']).dot}`} title={s.label} />
           </div>
         )
       })}
@@ -119,7 +119,7 @@ function StagePipeline({ product }) {
 
 function StageRow({ stage, product, onNavigate, onCopyLink, copied }) {
   const status = statusOf(product, stage.key)
-  const style  = STATUS_STYLES[status]
+  const style  = STATUS_STYLES[status] || STATUS_STYLES['not-started']
 
   return (
     <div className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
@@ -200,7 +200,11 @@ export default function Dashboard() {
   const [loading,          setLoading]          = useState(false)
 
   const [activeClient,     setActiveClient]     = useState(null)
+  const [filterClient,     setFilterClient]     = useState(null)
+  const [sortBy,           setSortBy]           = useState('activity')
+  const [viewMode,         setViewMode]         = useState('list')
   const [expanded,         setExpanded]         = useState(null)
+  const [userMenuOpen,     setUserMenuOpen]     = useState(false)
   const [copied,           setCopied]           = useState(null)
 
   const [productModal,     setProductModal]     = useState(false)
@@ -368,19 +372,61 @@ export default function Dashboard() {
     setCopied(briefId); setTimeout(() => setCopied(null), 2500)
   }
 
-  // ── Filtered / grouped view ───────────────────────────────────────────────
+  // ── Sort + filter ─────────────────────────────────────────────────────────
 
-  const visibleProducts = activeClient
-    ? products.filter(p => p.clientId === activeClient.id)
-    : products
+  const nextDueDate = (p) => {
+    const fd = p.stages?.brief ? null : null // brief formData lives on brief doc, not product
+    const dates = [
+      p.stages?.sampleSending?.expectedArrival,
+      p.stages?.clientSignOff?.targetDeliveryDate,
+      p.stages?.labTesting?.expectedResultsDate,
+      p.stages?.batchDecision?.productionDateBooked,
+    ].filter(Boolean).map(d => new Date(d).getTime()).filter(n => n > Date.now())
+    return dates.length > 0 ? Math.min(...dates) : Infinity
+  }
 
-  const grouped = clients.reduce((acc, client) => {
-    const cp = visibleProducts.filter(p => p.clientId === client.id)
-    if (cp.length > 0) acc.push({ client, products: cp })
-    return acc
-  }, [])
+  const lastActivity = (p) => {
+    const stages = p.stages || {}
+    const timestamps = Object.values(stages).flatMap(s => [
+      s?.completedAt, s?.updatedAt, s?.sentAt, s?.deliveredAt,
+      s?.submittedAt, s?.signedOffDate, s?.approvedAt,
+    ]).filter(Boolean)
+    return timestamps.length > 0
+      ? Math.max(...timestamps.map(t => new Date(t).getTime()))
+      : new Date(p.createdAt || 0).getTime()
+  }
 
-  const orphans = visibleProducts.filter(p => !clients.find(c => c.id === p.clientId))
+  const visibleProducts = (filterClient ? products.filter(p => p.clientId === filterClient.id) : products)
+    .slice()
+    .sort((a, b) => {
+      if (sortBy === 'activity') return lastActivity(b) - lastActivity(a)
+      if (sortBy === 'due')      return nextDueDate(a) - nextDueDate(b)
+      if (sortBy === 'name')     return a.productName.localeCompare(b.productName)
+      if (sortBy === 'client')   return (a.clientName || '').localeCompare(b.clientName || '')
+      return 0
+    })
+
+  // ── Timeline events ────────────────────────────────────────────────────────
+
+  const timelineEvents = products.flatMap(p => {
+    const events = []
+    const fd = p.briefFormData || {}
+    const add = (date, label, color) => {
+      if (!date) return
+      const d = new Date(date)
+      if (!isNaN(d)) events.push({ date: d, label, productName: p.productName, clientName: p.clientName, logoUrl: clients.find(c => c.id === p.clientId)?.logoUrl, productId: p.id, color })
+    }
+    add(fd.samplesNeededBy,   '🧪 Sample date',       'blue')
+    add(fd.distributorDate,   '🚚 Lands at distributor', 'amber')
+    add(fd.launchDate,        '🚀 In-store launch',    'green')
+    add(p.stages?.sampleSending?.expectedArrival, '📦 Sample arrives', 'purple')
+    add(p.stages?.clientSignOff?.targetDeliveryDate, '📋 First order delivery', 'teal')
+    add(p.stages?.batchDecision?.productionDateBooked, '🏭 Production booked', 'orange')
+    add(p.stages?.labTesting?.expectedResultsDate, '🔬 Lab results due', 'red')
+    return events
+  }).sort((a, b) => a.date - b.date)
+
+  const upcomingEvents = timelineEvents.filter(e => e.date >= new Date(Date.now() - 86400000 * 7)) // 7 days back
 
   // ── Login screen ──────────────────────────────────────────────────────────
 
@@ -418,138 +464,241 @@ export default function Dashboard() {
 
       {/* Header */}
       <div className="bg-black text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <img src="/logo.png" alt="Bloomin" className="h-6 sm:h-7 object-contain brightness-0 invert flex-shrink-0" onError={e => e.target.style.display='none'} />
-            <div className="w-px h-5 bg-white/20 flex-shrink-0" />
-            <span className="text-xs sm:text-sm font-medium text-white/70 hidden sm:block">NPD Dashboard</span>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            {currentUser && (
-              <div className="flex items-center gap-2 sm:gap-3">
-                <div className="text-right hidden sm:block">
-                  <p className="text-sm font-semibold text-white leading-none">{currentUser.name}</p>
-                  <p className="text-xs text-white/50 mt-0.5">{currentUser.role}</p>
-                </div>
-                <span className="text-xs text-white/70 sm:hidden font-medium">{currentUser.name}</span>
-                <button onClick={() => { setAuthed(false); setCurrentUser(null); localStorage.removeItem('npd_auth'); localStorage.removeItem('npd_user') }} className="text-xs text-white/40 hover:text-white/80 transition">
-                  Sign out
-                </button>
-              </div>
-            )}
-            <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true) }} className="px-3 sm:px-4 py-2 border border-white/20 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-white/10 transition hidden sm:block">
-              + New client
-            </button>
-            <button onClick={() => router.push('/suppliers')} className="px-3 sm:px-4 py-2 border border-white/20 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-white/10 transition hidden sm:block">
-              Suppliers
-            </button>
-            <button onClick={() => setProductModal(true)} disabled={clients.length === 0} className="px-3 sm:px-4 py-2 bg-white text-black text-xs sm:text-sm font-semibold rounded-lg hover:bg-gray-100 transition disabled:opacity-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+
+          {/* Left — logo */}
+          <img src="/logo.png" alt="Bloomin" className="h-6 object-contain brightness-0 invert flex-shrink-0" onError={e => e.target.style.display='none'} />
+
+          {/* Right */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <button onClick={() => setProductModal(true)} disabled={clients.length === 0}
+              className="px-4 py-1.5 bg-white text-black text-xs font-semibold rounded-lg hover:bg-gray-100 transition disabled:opacity-40">
               + New product
             </button>
+
+            {/* User dropdown */}
+            {currentUser && (
+              <div className="relative">
+                <button
+                  onClick={() => setUserMenuOpen(o => !o)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/10 transition"
+                >
+                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                    {currentUser.name?.[0]?.toUpperCase()}
+                  </div>
+                  <div className="hidden sm:block text-left">
+                    <p className="text-xs font-semibold text-white leading-none">{currentUser.name}</p>
+                    <p className="text-xs text-white/50">{currentUser.role}</p>
+                  </div>
+                  <svg className="w-3 h-3 text-white/40 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+
+                {userMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-gray-100">
+                        <p className="text-xs font-semibold text-gray-900">{currentUser.name}</p>
+                        <p className="text-xs text-gray-400">{currentUser.role}</p>
+                      </div>
+                      <div className="py-1">
+                        <button onClick={() => { router.push('/suppliers'); setUserMenuOpen(false) }}
+                          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">
+                          Suppliers
+                        </button>
+                        <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true); setUserMenuOpen(false) }}
+                          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">
+                          + New client
+                        </button>
+                      </div>
+                      <div className="border-t border-gray-100 py-1">
+                        <button onClick={() => { setAuthed(false); setCurrentUser(null); localStorage.removeItem('npd_auth'); localStorage.removeItem('npd_user'); setUserMenuOpen(false) }}
+                          className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition">
+                          Sign out
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full flex flex-col sm:flex-row gap-6 sm:gap-8">
 
-        {/* Sidebar — horizontal scroll on mobile, vertical on desktop */}
-        <div className="sm:w-56 sm:flex-shrink-0">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest px-1 mb-2 sm:mb-3">Clients</p>
-          <div className="flex sm:flex-col gap-2 overflow-x-auto pb-2 sm:pb-0 sm:space-y-1">
-            <SidebarItem label="All" count={products.length} active={!activeClient} onClick={() => { setActiveClient(null); setExpanded(null) }} />
-            {loading
-              ? <p className="text-xs text-gray-400 px-3 py-2">Loading...</p>
-              : clients.map(client => (
-                <div key={client.id} className="group relative flex-shrink-0 sm:flex-shrink">
-                  <SidebarItem
-                    label={client.name}
-                    count={products.filter(p => p.clientId === client.id).length}
-                    active={activeClient?.id === client.id}
-                    logo={client.logoUrl}
-                    onClick={() => { setActiveClient(client); setExpanded(null) }}
-                  />
-                  <button onClick={() => openEditClient(client)} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition text-xs text-gray-400 hover:text-black px-1">✏️</button>
-                </div>
-              ))
-            }
-            <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true) }} className="flex-shrink-0 sm:hidden px-3 py-2 rounded-xl border border-dashed border-gray-300 text-xs text-gray-400 hover:border-gray-500 hover:text-gray-600 transition whitespace-nowrap">
-              + New client
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full space-y-6">
+
+        {/* Controls bar */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+            <button onClick={() => setFilterClient(null)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${!filterClient ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+              All ({products.length})
             </button>
+            {clients.map(c => {
+              const count = products.filter(p => p.clientId === c.id).length
+              if (count === 0) return null
+              return (
+                <button key={c.id} onClick={() => setFilterClient(filterClient?.id === c.id ? null : c)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition ${filterClient?.id === c.id ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+                  {c.logoUrl && <img src={c.logoUrl} alt="" className="w-3.5 h-3.5 rounded-full object-cover" onError={e => e.target.style.display='none'} />}
+                  {c.name} <span className="opacity-60">{count}</span>
+                </button>
+              )
+            })}
+            {clients.map(c => null).length === 0 && (
+              <button onClick={() => openEditClient(null)} className="text-xs text-gray-400 hover:text-black px-2 py-1 transition">✏️ Edit clients</button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+              className="px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-black text-gray-600">
+              <option value="activity">↻ Latest activity</option>
+              <option value="due">⏱ Next due date</option>
+              <option value="name">A–Z Name</option>
+              <option value="client">A–Z Client</option>
+            </select>
+            <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+              {[['list','☰'],['timeline','📅']].map(([v,icon]) => (
+                <button key={v} onClick={() => setViewMode(v)}
+                  className={`px-3 py-1.5 text-sm transition ${viewMode === v ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  {icon}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Main */}
-        <div className="flex-1 min-w-0 space-y-8">
-          {visibleProducts.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-2xl py-20 text-center">
-              <p className="text-3xl mb-3">🌿</p>
-              <p className="font-semibold text-gray-700">{clients.length === 0 ? 'Create a client first' : 'No products yet'}</p>
-              <p className="text-sm text-gray-400 mt-1">{clients.length === 0 ? 'Then add your first product' : 'Hit "+ New product" to get started'}</p>
-            </div>
-          ) : (
-            <>
-              {grouped.map(({ client, products: clientProducts }) => (
-                <div key={client.id}>
-                  {!activeClient && (
-                    <div className="flex items-center gap-3 mb-3">
-                      {client.logoUrl
-                        ? <img src={client.logoUrl} alt="" className="w-6 h-6 rounded-full object-cover" onError={e => e.target.style.display='none'} />
-                        : <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">{client.name[0]}</div>
+        {/* ── LIST VIEW ───────────────────────────────────────────── */}
+        {viewMode === 'list' && (
+          <div className="space-y-2">
+            {visibleProducts.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-2xl py-20 text-center">
+                <p className="text-3xl mb-3">🌿</p>
+                <p className="font-semibold text-gray-700">{clients.length === 0 ? 'Create a client first' : 'No products yet'}</p>
+                <p className="text-sm text-gray-400 mt-1">{clients.length === 0 ? 'Then add your first product' : 'Hit "+ New product" to get started'}</p>
+              </div>
+            ) : visibleProducts.map(product => {
+              const overall = overallStatus(product)
+              const client  = clients.find(c => c.id === product.clientId)
+              const nd = nextDueDate(product)
+              const nextDueLabel = nd !== Infinity ? (() => {
+                const d = new Date(nd)
+                const diff = Math.ceil((d - Date.now()) / 86400000)
+                const str = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                if (diff < 0)  return { text: `${str} · overdue`, color: 'text-red-500' }
+                if (diff <= 7) return { text: `${str} · in ${diff}d`, color: 'text-amber-600' }
+                return { text: str, color: 'text-gray-400' }
+              })() : null
+              return (
+                <div key={product.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden hover:border-gray-300 transition cursor-pointer"
+                  onClick={() => router.push(`/product/${product.id}`)}>
+                  <div className="px-5 py-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {client?.logoUrl
+                        ? <img src={client.logoUrl} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" onError={e => e.target.style.display='none'} />
+                        : <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-400 flex-shrink-0">{product.clientName?.[0] || '?'}</div>
                       }
-                      <h2 className="text-sm font-bold text-gray-700">{client.name}</h2>
-                      <span className="text-xs text-gray-400">{clientProducts.length} product{clientProducts.length !== 1 ? 's' : ''}</span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-gray-900 truncate">{product.productName}</p>
+                          {product.owner && <span className="text-xs text-gray-400 hidden sm:inline">{product.owner}</span>}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">
+                          {(() => { const cs = getCurrentStatus(product); return `${cs.emoji} ${cs.label}` })()}
+                          {nextDueLabel && <span className={`ml-2 font-medium ${nextDueLabel.color}`}>· {nextDueLabel.text}</span>}
+                        </p>
+                        {(() => {
+                          const ts = lastActivity(product)
+                          if (!ts || ts === new Date(product.createdAt || 0).getTime()) return null
+                          const d = new Date(ts)
+                          const diff = Math.floor((Date.now() - ts) / 60000)
+                          const label = diff < 1    ? 'just now'
+                                      : diff < 60   ? `${diff}m ago`
+                                      : diff < 1440 ? `${Math.floor(diff/60)}h ago`
+                                      : diff < 2880 ? 'yesterday'
+                                      : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                          return <p className="text-xs text-gray-300 mt-0.5">Updated {label}</p>
+                        })()}
+                      </div>
                     </div>
-                  )}
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <StagePipeline product={product} />
+                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium hidden sm:inline ${STATUS_STYLES[overall].badge}`}>
+                        {STATUS_STYLES[overall].label}
+                      </span>
+                      <span className="text-gray-300 text-sm">›</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
-                  <div className="space-y-2">
-                    {clientProducts.map(product => {
-                      const overall    = overallStatus(product)
-                      const isExpanded = expanded === product.id
+        {/* ── TIMELINE VIEW ───────────────────────────────────────── */}
+        {viewMode === 'timeline' && (
+          <div className="space-y-4">
+            {upcomingEvents.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-2xl py-16 text-center">
+                <p className="text-3xl mb-3">📅</p>
+                <p className="font-semibold text-gray-700">No upcoming dates</p>
+                <p className="text-sm text-gray-400 mt-1">Dates from briefs and pipeline stages will appear here</p>
+              </div>
+            ) : (() => {
+              const byMonth = {}
+              upcomingEvents.forEach(e => {
+                const key = e.date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+                if (!byMonth[key]) byMonth[key] = []
+                byMonth[key].push(e)
+              })
+              return Object.entries(byMonth).map(([month, events]) => (
+                <div key={month}>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 px-1">{month}</p>
+                  <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden divide-y divide-gray-50">
+                    {events.map((e, i) => {
+                      const cl = clients.find(c => c.name === e.clientName)
+                      const isToday = e.date.toDateString() === new Date().toDateString()
+                      const isPast  = e.date < new Date()
+                      const diff    = Math.ceil((e.date - Date.now()) / 86400000)
                       return (
-                        <div key={product.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-                          {/* Product row */}
-                          <div
-                            className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition"
-                            onClick={() => router.push(`/product/${product.id}`)}
-                          >
-                            <div className="min-w-0">
-                              <p className="font-semibold text-gray-900 truncate">{product.productName}</p>
-                              {product.owner && <p className="text-xs text-gray-400 mt-0.5">{product.owner}</p>}
-                              <p className="text-xs text-gray-400 mt-0.5">
-                                {(() => { const cs = getCurrentStatus(product); return `${cs.emoji} ${cs.label}` })()}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-4 flex-shrink-0">
-                              <StagePipeline product={product} />
-                              <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_STYLES[overall].badge}`}>
-                                {STATUS_STYLES[overall].label}
-                              </span>
-                              <span className={`text-gray-400 text-sm inline-block`}>›</span>
-                            </div>
+                        <div key={i} onClick={() => router.push(`/product/${e.productId}`)}
+                          className={`px-5 py-3.5 flex items-center gap-4 cursor-pointer hover:bg-gray-50 transition ${isToday ? 'bg-amber-50' : ''}`}>
+                          <div className={`w-12 text-center flex-shrink-0 ${isPast ? 'opacity-40' : ''}`}>
+                            <p className="text-lg font-bold text-gray-900 leading-none">{e.date.getDate()}</p>
+                            <p className="text-xs text-gray-400">{e.date.toLocaleDateString('en-GB', { weekday: 'short' })}</p>
+                          </div>
+                          {cl?.logoUrl
+                            ? <img src={cl.logoUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" onError={ex => ex.target.style.display='none'} />
+                            : <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-400 flex-shrink-0">{e.clientName?.[0]}</div>
+                          }
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">{e.label} — {e.productName}</p>
+                            <p className="text-xs text-gray-400">{e.clientName}</p>
+                          </div>
+                          <div className="flex-shrink-0">
+                            {isToday
+                              ? <span className="text-xs bg-amber-400 text-white px-2 py-1 rounded-full font-semibold">Today</span>
+                              : isPast
+                              ? <span className="text-xs text-gray-300">Past</span>
+                              : diff <= 7
+                              ? <span className="text-xs bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded-full font-semibold">In {diff}d</span>
+                              : <span className="text-xs text-gray-400">In {diff}d</span>
+                            }
                           </div>
                         </div>
                       )
                     })}
                   </div>
                 </div>
-              ))}
+              ))
+            })()}
+          </div>
+        )}
 
-              {orphans.length > 0 && (
-                <div>
-                  <h2 className="text-sm font-bold text-gray-400 mb-3 px-1">Unassigned</h2>
-                  <div className="space-y-2">
-                    {orphans.map(product => (
-                      <div key={product.id} className="bg-white border border-gray-200 rounded-2xl px-5 py-4">
-                        <p className="font-semibold text-gray-900">{product.productName}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
       </div>
+
 
       {/* Delete confirm */}
       {deleteConfirm && (

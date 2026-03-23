@@ -27,7 +27,7 @@ const PIPELINE = [
   { key: 'batchDecision',  label: 'Batch Decision',         icon: '✅', who: 'Aurelien',    route: (id) => `/batchdecision/${id}` },
   { key: 'labTesting',     label: 'Lab Testing',            icon: '🔬', who: 'Lab',         route: (id) => `/labtest/${id}` },
   { key: 'labelling',      label: 'Labelling',              icon: '🏷️', who: 'Aurelien',    route: (id) => `/labelling/${id}` },
-  { key: 'release',        label: 'Business as Usual',      icon: '✅', who: null,          route: null },
+  { key: 'release',        label: 'Business as Usual',      icon: '✅', who: null,          route: (id) => `/release/${id}` },
 ]
 
 const STATUS = {
@@ -192,8 +192,9 @@ export default function ProductPage() {
           {/* Tabs */}
           <div className="flex gap-1 mt-4">
             {[
-              { key: 'pipeline', label: 'Pipeline' },
-              { key: 'brief',    label: 'Client Brief' },
+              { key: 'pipeline',  label: 'Pipeline'      },
+              { key: 'brief',     label: 'Client Brief'  },
+              { key: 'resources', label: '📄 Resources'  },
             ].map(t => (
               <button key={t.key} onClick={() => setActiveTab(t.key)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition ${activeTab === t.key ? 'border-white text-white' : 'border-transparent text-white/40 hover:text-white/70'}`}>
                 {t.label}
@@ -281,8 +282,8 @@ export default function ProductPage() {
               }
               if (stage.key === 'labelling') {
                 const l = stages.labelling
-                if (status === 'complete') sub = `Complete · ${l?.designedBy || ''} label`
-                if (status === 'in-progress') sub = 'Allergens, nutrition, claims & design'
+                if (status === 'complete') sub = `Complete · ${l?.designedBy || ''} label${l?.labelVersion ? ` · v${l.labelVersion}` : ''}`
+                if (status === 'in-progress') sub = `Allergens, nutrition, claims & design${stages.labelling?.labelVersion ? ` · v${stages.labelling.labelVersion} saved` : ''}`
               }
               if (stage.key === 'labTesting') {
                 const date = stages.labTesting?.expectedResultsDate
@@ -375,9 +376,11 @@ export default function ProductPage() {
             )}
           </div>
         )}
+        {/* ── Resources tab ── */}
+        {activeTab === 'resources' && (
+          <ResourcesTab product={product} brief={brief} labSheets={labSheets} productId={id} router={router} />
+        )}
       </div>
-
-      {/* Client approval modal */}
       {approvalModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm space-y-5">
@@ -415,6 +418,166 @@ export default function ProductPage() {
               <button onClick={() => setDeleteConfirm(false)} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
               <button onClick={deleteProduct} className="flex-1 py-3 bg-black text-white rounded-xl text-sm font-semibold hover:bg-gray-900 transition">Delete</button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Resources Tab ────────────────────────────────────────────────────────────
+function ResourcesTab({ product, brief, labSheets, productId, router }) {
+  const s   = product?.stages || {}
+  const fd  = brief?.formData  || {}
+  const signedSheet = labSheets.find(l => l.status === 'signed-off') || labSheets[0]
+
+  const resources = [
+    {
+      key:        'brief',
+      title:      'Client Brief',
+      icon:       '📋',
+      desc:       'Full brief submitted by the client — product type, flavour, usage, packaging, contacts.',
+      available:  !!brief?.submitted,
+      status:     brief?.submitted ? 'complete' : 'pending',
+      statusLabel:brief?.submitted ? `Submitted by ${brief.submittedBy || 'client'}` : 'Awaiting client submission',
+      href:       `/print/brief/${productId}`,
+    },
+    {
+      key:        'scoping',
+      title:      'Ingredient Order Sheet',
+      icon:       '🧺',
+      desc:       'Full ingredient list with quantities, approved suppliers, order codes and delivery dates.',
+      available:  s.scoping?.status === 'complete' || s.scoping?.status === 'in-progress',
+      status:     s.scoping?.status === 'complete' ? 'complete' : 'in-progress',
+      statusLabel:s.scoping?.phase === 'delivered' ? 'All delivered' : s.scoping?.phase === 'ordering' ? 'Ordering in progress' : 'In progress',
+      href:       `/print/scoping/${productId}`,
+    },
+    {
+      key:        'lab',
+      title:      'Lab Development Sheet',
+      icon:       '🧪',
+      desc:       `Recipe, process, analytical specs, sensory profile and production notes${signedSheet ? ` — V${signedSheet.versionNumber} ${signedSheet.versionName}` : ''}.`,
+      available:  labSheets.length > 0,
+      status:     s.lab?.status === 'complete' ? 'complete' : labSheets.length > 0 ? 'in-progress' : 'pending',
+      statusLabel:signedSheet ? `V${signedSheet.versionNumber} signed off` : labSheets.length > 0 ? `${labSheets.length} version${labSheets.length !== 1 ? 's' : ''} in progress` : 'Not started',
+      href:       `/print/lab/${productId}`,
+    },
+    {
+      key:        'sampleSending',
+      title:      'Sample Sending Record',
+      icon:       '📦',
+      desc:       'Shipment log — who sent, recipient, packages, tracking numbers and expected arrival.',
+      available:  s.sampleSending?.status === 'complete',
+      status:     s.sampleSending?.status || 'pending',
+      statusLabel:s.sampleSending?.sentAt ? `Sent ${new Date(s.sampleSending.sentAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}` : 'Not sent yet',
+      href:       `/print/samplesending/${productId}`,
+    },
+    {
+      key:        'clientSignOff',
+      title:      'Client Sign-off Record',
+      icon:       '✍️',
+      desc:       'Sign-off version, who approved, date, client feedback and initial order details.',
+      available:  s.clientSignOff?.status === 'complete',
+      status:     s.clientSignOff?.status || 'pending',
+      statusLabel:s.clientSignOff?.signedOffBy ? `Signed off by ${s.clientSignOff.signedOffBy}` : 'Awaiting sign-off',
+      href:       `/print/clientsignoff/${productId}`,
+    },
+    {
+      key:        'validation',
+      title:      'Test Batch Report',
+      icon:       '🏭',
+      desc:       'Full QA report for each production batch — visual, analytical, sensory and application checks with photos.',
+      available:  s.validation?.status === 'complete' || s.validation?.batchesCompleted > 0,
+      status:     s.validation?.status || 'pending',
+      statusLabel:s.validation?.batchesCompleted > 0 ? `${s.validation.batchesCompleted} batch${s.validation.batchesCompleted !== 1 ? 'es' : ''} checked` : 'Not started',
+      href:       `/print/validation/${productId}`,
+    },
+    {
+      key:        'labTesting',
+      title:      'Lab Testing Submission',
+      icon:       '🔬',
+      desc:       'External lab submission record — tests requested, lab details, expected results date.',
+      available:  s.labTesting?.status === 'in-progress' || s.labTesting?.status === 'complete',
+      status:     s.labTesting?.status || 'pending',
+      statusLabel:s.labTesting?.status === 'complete' ? 'Results received' : s.labTesting?.status === 'in-progress' ? 'Awaiting results' : 'Not submitted',
+      href:       `/print/labtesting/${productId}`,
+    },
+    {
+      key:        'labelling',
+      title:      'Allergen & Nutritional Declaration',
+      icon:       '🏷️',
+      desc:       'Full allergen table (14 EU allergens), nutritional panel, product claims and substantiation.',
+      available:  s.labelling?.status === 'complete' || s.labelling?.status === 'in-progress',
+      status:     s.labelling?.status || 'pending',
+      statusLabel:s.labelling?.status === 'complete' ? `Label v${s.labelling?.labelVersion || 1} · Complete` : s.labelling?.labelVersion ? `Draft v${s.labelling.labelVersion}` : 'Not started',
+      href:       `/print/labelling/${productId}`,
+    },
+    {
+      key:        'release',
+      title:      'Full Product Spec Sheet',
+      icon:       '📊',
+      desc:       'Complete product record — commercial summary, BOM, recipe, allergens, nutritional info, claims and contacts.',
+      available:  true,
+      status:     s.release?.status === 'complete' ? 'complete' : 'in-progress',
+      statusLabel:s.release?.status === 'complete' ? 'Released' : 'In progress',
+      href:       `/release/${productId}`,
+    },
+  ]
+
+  const available = resources.filter(r => r.available)
+  const pending   = resources.filter(r => !r.available)
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4">
+        <h2 className="text-sm font-bold text-gray-900">Documents & Exports</h2>
+        <p className="text-xs text-gray-400 mt-0.5">All documents generated from this product's data. Open any to view and print as PDF.</p>
+      </div>
+
+      {/* Available */}
+      <div className="space-y-2">
+        {available.map(r => (
+          <div key={r.key} className="bg-white border border-gray-200 rounded-2xl px-5 py-4 flex items-center justify-between gap-4 hover:border-gray-300 transition">
+            <div className="flex items-center gap-4 min-w-0 flex-1">
+              <span className="text-2xl flex-shrink-0">{r.icon}</span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-gray-900">{r.title}</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    r.status === 'complete' ? 'bg-green-50 text-green-700' :
+                    r.status === 'in-progress' ? 'bg-amber-50 text-amber-700' :
+                    'bg-gray-50 text-gray-400'
+                  }`}>{r.statusLabel}</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5 truncate">{r.desc}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => window.open(r.href, '_blank')}
+                className="px-4 py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-gray-900 transition"
+              >
+                View & export →
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Not yet available */}
+      {pending.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 px-1">Not yet available</p>
+          <div className="space-y-2">
+            {pending.map(r => (
+              <div key={r.key} className="bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 flex items-center gap-4 opacity-60">
+                <span className="text-2xl flex-shrink-0 grayscale">{r.icon}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-500">{r.title}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{r.statusLabel}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

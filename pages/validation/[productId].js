@@ -15,6 +15,7 @@ const EMPTY_BATCH = (n) => ({
   facility: '', date: '', assessedBy: '',
   // Syrup checks
   batchPhotoUrl: '',
+  batchDrinkPhotoUrl: '',
   visual: {
     colourNotes: '', colourPass: '',
     clarity: '', sediment: '', separation: '',
@@ -146,6 +147,16 @@ export default function ValidationPage() {
       upd('batchPhotoUrl', await getDownloadURL(sRef))
     } catch (e) { console.error(e) }
     setUploading(u => ({ ...u, photo: false }))
+  }
+
+  const uploadDrinkPhoto = async (file) => {
+    setUploading(u => ({ ...u, drink: true }))
+    try {
+      const sRef = storageRef(storage, `validation/${productId}/drink-${activeBatch + 1}-${Date.now()}`)
+      await uploadBytes(sRef, file)
+      upd('batchDrinkPhotoUrl', await getDownloadURL(sRef))
+    } catch (e) { console.error(e) }
+    setUploading(u => ({ ...u, drink: false }))
   }
 
   const saveBatch = async () => {
@@ -511,6 +522,22 @@ export default function ValidationPage() {
                   {ld.colourInDrink && <p className="text-xs text-gray-400 mt-1">Lab colour: "{ld.colourInDrink}"</p>}
                 </div>
               )}
+
+              {/* Batch drink photo */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">This batch — prepared drink</p>
+                {b.batchDrinkPhotoUrl
+                  ? <label className="relative group block cursor-pointer">
+                      <img src={b.batchDrinkPhotoUrl} alt="Batch drink" className="h-36 object-cover rounded-xl border border-gray-200" />
+                      <span className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-xl flex items-center justify-center text-white text-xs font-semibold">Replace</span>
+                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => e.target.files?.[0] && uploadDrinkPhoto(e.target.files[0])} />
+                    </label>
+                  : <label className="cursor-pointer h-36 w-full rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-gray-400 transition">
+                      {uploading.drink ? <><span className="text-xl">⏳</span><span className="text-xs">Uploading...</span></> : <><span className="text-2xl">🥤</span><span className="text-xs font-medium">Photo of the prepared drink</span><span className="text-xs text-gray-300">for comparison</span></>}
+                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => e.target.files?.[0] && uploadDrinkPhoto(e.target.files[0])} />
+                    </label>
+                }
+              </div>
 
               {/* Application */}
               <Section title="Application Check" sub="Does it work in the actual drink? Test against the brief.">

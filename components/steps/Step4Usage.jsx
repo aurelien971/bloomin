@@ -8,20 +8,18 @@ const USES = [
   'Desserts / food',
   'Other',
 ]
+const MILK_TYPES  = ['Full fat', 'Semi-skimmed', 'Skimmed', 'Oat', 'Almond', 'Soy', 'Coconut', 'Other']
+const MILK_USES   = ['Hot milk drinks', 'Cold milk drinks', 'Matcha / powder drinks']
+const FLAVOURING  = ['Natural flavourings', 'Artificial flavourings', 'Extracts', 'Concentrates', 'None / whole ingredients only']
 
-const MILK_TYPES = ['Full fat', 'Semi-skimmed', 'Skimmed', 'Oat', 'Almond', 'Soy', 'Coconut', 'Other']
-const TEXTURE    = ['Very thick', 'Thick', 'Medium', 'Light and runny', 'No preference']
-const MILK_USES  = ['Hot milk drinks', 'Cold milk drinks', 'Matcha / powder drinks']
-
-// Map endDrinkType (Step 3) to the most likely "uses" pre-selection
+// Map end drink type (Step 3) → likely use pre-select
 const END_DRINK_TO_USE = {
-  'Matcha latte':        'Matcha / powder drinks',
-  'Iced coffee':         'Cold milk drinks',
-  'Hot chocolate':       'Hot milk drinks',
-  'Milk drink':          'Hot milk drinks',
-  'Sparkling water / soda': 'Sparkling water / soda',
-  'Cocktail / mocktail': 'Cocktails / mocktails',
-  'Smoothie':            'Hot milk drinks',
+  'Matcha latte':            'Matcha / powder drinks',
+  'Iced coffee':             'Cold milk drinks',
+  'Hot chocolate':           'Hot milk drinks',
+  'Milk drink':              'Hot milk drinks',
+  'Sparkling water / soda':  'Sparkling water / soda',
+  'Cocktail / mocktail':     'Cocktails / mocktails',
 }
 
 export default function Step4Usage({ data, onChange }) {
@@ -31,35 +29,22 @@ export default function Step4Usage({ data, onChange }) {
     const curr = data.uses || []
     set('uses', curr.includes(use) ? curr.filter(u => u !== use) : [...curr, use])
   }
-
   const toggleMilk = (type) => {
     const curr = data.milkTypes || []
     set('milkTypes', curr.includes(type) ? curr.filter(t => t !== type) : [...curr, type])
   }
-
-  const usesMilk = (data.uses || []).some(u => MILK_USES.includes(u))
-
-  // Infer from Step 3 endDrinkType
-  const inferredUse = END_DRINK_TO_USE[data.endDrinkType]
-
-  // Auto-add inferred use on first render if uses is empty
-  const handleToggle = (use) => {
-    const curr = data.uses || []
-    if (curr.length === 0 && inferredUse && use !== inferredUse) {
-      // User is picking something different from the inferred — just add it
-    }
-    toggle(use)
+  const toggleFlavouring = (f) => {
+    const curr = data.flavouringTypes || []
+    set('flavouringTypes', curr.includes(f) ? curr.filter(x => x !== f) : [...curr, f])
   }
 
-  // Dose rate hint adjusts based on pump compatible (if already answered)
-  const pumpHint = data.pumpCompatible === 'Yes'
-    ? 'e.g. 2 pumps per drink (1 pump ≈ 10ml) — leave blank if unsure'
-    : 'e.g. 20ml per drink — leave blank if unsure. If using a pump, note the number of pumps.'
+  const usesMilk   = (data.uses || []).some(u => MILK_USES.includes(u))
+  const inferredUse = END_DRINK_TO_USE[data.endDrinkType]
 
   return (
     <div className="space-y-6">
 
-      {/* End drink type — pre-filled from Step 3, shown as context */}
+      {/* End drink context from Step 3 */}
       {data.endDrinkType && (
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
           <span className="text-lg">☕</span>
@@ -74,21 +59,16 @@ export default function Step4Usage({ data, onChange }) {
 
       <Field label="Where will this syrup be used?" hint="Select all that apply.">
         {inferredUse && !(data.uses || []).includes(inferredUse) && (
-          <button
-            type="button"
-            onClick={() => toggle(inferredUse)}
-            className="w-full mb-2 px-4 py-2.5 rounded-xl text-sm font-medium border border-dashed border-green-300 text-green-700 bg-green-50 hover:bg-green-100 transition text-left flex items-center justify-between gap-2"
-          >
+          <button type="button" onClick={() => toggle(inferredUse)}
+            className="w-full mb-2 px-4 py-2.5 rounded-xl text-sm font-medium border border-dashed border-green-300 text-green-700 bg-green-50 hover:bg-green-100 transition text-left flex items-center justify-between gap-2">
             <span>↵ Add "{inferredUse}" based on your end drink</span>
             <span className="text-xs text-green-500">tap to add</span>
           </button>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {USES.map(u => (
-            <button
-              key={u} type="button" onClick={() => toggle(u)}
-              className={`px-3 py-2.5 rounded-xl text-sm font-medium border text-left flex items-center gap-2 transition-all ${(data.uses||[]).includes(u) ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-green-400'}`}
-            >
+            <button key={u} type="button" onClick={() => toggle(u)}
+              className={`px-3 py-2.5 rounded-xl text-sm font-medium border text-left flex items-center gap-2 transition-all ${(data.uses||[]).includes(u) ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-green-400'}`}>
               <span className={`w-4 h-4 rounded border flex items-center justify-center text-xs flex-shrink-0 ${(data.uses||[]).includes(u) ? 'bg-white border-white text-green-600' : 'border-gray-300'}`}>
                 {(data.uses||[]).includes(u) ? '✓' : ''}
               </span>
@@ -97,54 +77,64 @@ export default function Step4Usage({ data, onChange }) {
           ))}
         </div>
         {(data.uses||[]).includes('Other') && (
-          <input
-            className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
-            placeholder="Tell us more..."
-            value={data.usesOther || ''}
-            onChange={e => set('usesOther', e.target.value)}
-          />
+          <input className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+            placeholder="Tell us more..." value={data.usesOther || ''} onChange={e => set('usesOther', e.target.value)} />
         )}
       </Field>
 
-      {/* Milk type — only shown if a milk use is selected */}
       {usesMilk && (
-        <Field
-          label="What type of milk will it go into?"
-          hint="Select all that apply — some syrups can split in certain milks, so this matters."
-        >
+        <Field label="What type of milk will it go into?" hint="Select all that apply — some syrups can split in certain milks, so this matters.">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {MILK_TYPES.map(t => (
-              <button
-                key={t} type="button" onClick={() => toggleMilk(t)}
-                className={`px-3 py-2.5 rounded-xl text-sm font-medium border text-center transition-all ${(data.milkTypes||[]).includes(t) ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-green-400'}`}
-              >
+              <button key={t} type="button" onClick={() => toggleMilk(t)}
+                className={`px-3 py-2.5 rounded-xl text-sm font-medium border text-center transition-all ${(data.milkTypes||[]).includes(t) ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-green-400'}`}>
                 {t}
               </button>
             ))}
           </div>
           {(data.milkTypes||[]).includes('Other') && (
-            <input
-              className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
-              placeholder="Which other milk type?"
-              value={data.milkTypeOther || ''}
-              onChange={e => set('milkTypeOther', e.target.value)}
-            />
+            <input className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              placeholder="Which other milk type?" value={data.milkTypeOther || ''} onChange={e => set('milkTypeOther', e.target.value)} />
           )}
         </Field>
       )}
 
-      <Field label="Do you have a rough dose rate in mind?" hint={pumpHint}>
-        <input
-          placeholder="e.g. 2 pumps, or 20ml — leave blank if unsure"
-          value={data.doseRate || ''}
-          onChange={e => set('doseRate', e.target.value)}
+      <Field label="Serving size and end drink recipe" hint="How much of each component goes into the full drink? e.g. 250ml oat milk + 5g matcha powder + 20ml syrup.">
+        <textarea
+          rows={3}
+          placeholder="e.g. 250ml oat milk, 5g matcha powder, 20ml syrup (2 pumps) — or leave blank if unsure"
+          value={data.servingSizeRatio || ''}
+          onChange={e => set('servingSizeRatio', e.target.value)}
+          className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
         />
+        <p className="text-xs text-gray-400 mt-1">This helps our team match what you're making — leave blank if you haven't worked it out yet.</p>
       </Field>
 
-      <Field label="How thick should it feel?">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {TEXTURE.map(o => <Chip key={o} label={o} active={data.texture === o} onClick={() => set('texture', o)} />)}
+      <Field label="Do you have any flavouring requirements?" hint="e.g. natural only, no artificial flavourings, extracts only.">
+        <div className="flex gap-2 mb-3">
+          {['Yes', 'No preference'].map(o => (
+            <button key={o} type="button" onClick={() => {
+              set('hasFlavouringReq', o)
+              if (o === 'No preference') set('flavouringTypes', [])
+            }}
+              className={`px-5 py-2.5 rounded-xl border text-sm font-semibold transition ${data.hasFlavouringReq === o ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-green-400'}`}>
+              {o}
+            </button>
+          ))}
         </div>
+        {data.hasFlavouringReq === 'Yes' && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500">Which types of flavouring are you happy with? Select all that apply.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {FLAVOURING.map(o => (
+                <button key={o} type="button" onClick={() => toggleFlavouring(o)}
+                  className={`px-3 py-2.5 rounded-xl text-sm font-medium border text-left transition-all ${(data.flavouringTypes||[]).includes(o) ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-green-400'}`}>
+                  {o}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </Field>
 
     </div>

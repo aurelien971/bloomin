@@ -11,6 +11,7 @@ const UNITS = ['g', 'kg', 'ml', 'L', 'pcs', 'tbsp', 'tsp', 'oz']
 const EMPTY_ROW = () => ({
   name: '', quantity: '', unit: 'g',
   supplierId: '', supplierName: '', notes: '',
+  riskFactor: '',
   ordered: false, orderedAt: '', orderCode: '',
   expectedDelivery: '', delivered: false, deliveredAt: '',
 })
@@ -69,9 +70,28 @@ export default function ScopingPage() {
   const setRow = (i, f, v) => setIngredients(r => r.map((row, idx) => idx === i ? { ...row, [f]: v } : row))
 
   const setSupplierForRow = (i, supplierId) => {
+    if (supplierId?.startsWith('__request__:')) {
+      const reqName = supplierId.replace('__request__:', '')
+      setIngredients(r => r.map((row, idx) => idx === i
+        ? { ...row, supplierId: '', supplierName: `⚠ Requested: ${reqName}`, supplierRequest: reqName }
+        : row
+      ))
+      // Write to supplierRequests collection so Chris can see it on the suppliers page
+      addDoc(collection(db, 'supplierRequests'), {
+        supplierName:  reqName,
+        requestedBy:   product?.owner || '',
+        productName:   product?.productName || '',
+        clientName:    product?.clientName || '',
+        productId,
+        ingredientName: ingredients[i]?.name || '',
+        status:        'pending',
+        createdAt:     new Date().toISOString(),
+      }).catch(console.error)
+      return
+    }
     const sup = suppliers.find(s => s.id === supplierId)
     setIngredients(r => r.map((row, idx) => idx === i
-      ? { ...row, supplierId, supplierName: sup?.name || '' }
+      ? { ...row, supplierId, supplierName: sup?.name || '', supplierRequest: '' }
       : row
     ))
   }
@@ -321,15 +341,27 @@ export default function ScopingPage() {
             </div>
 
             {/* Footer */}
-            <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4 flex items-center justify-between">
-              <p className="text-sm text-gray-400">{clean.length} ingredient{clean.length !== 1 ? 's' : ''} added</p>
-              <button
-                onClick={submitList}
-                disabled={saving || clean.length === 0}
-                className="px-6 py-2.5 bg-black text-white text-sm font-semibold rounded-xl hover:bg-gray-900 transition disabled:opacity-40"
-              >
-                {saving ? 'Saving...' : 'Lock list & track delivery →'}
-              </button>
+            <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4 space-y-3">
+              {ingredients.some(r => r.supplierRequest) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <p className="text-xs font-semibold text-amber-800">⚠ New supplier requests — Chris needs to approve these before ordering:</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {ingredients.filter(r => r.supplierRequest).map((r, i) => (
+                      <li key={i} className="text-xs text-amber-700">· {r.name}: {r.supplierRequest}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-400">{clean.length} ingredient{clean.length !== 1 ? 's' : ''} added</p>
+                <button
+                  onClick={submitList}
+                  disabled={saving || clean.length === 0}
+                  className="px-6 py-2.5 bg-black text-white text-sm font-semibold rounded-xl hover:bg-gray-900 transition disabled:opacity-40"
+                >
+                  {saving ? 'Saving...' : 'Lock list & track delivery →'}
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -487,8 +519,12 @@ export default function ScopingPage() {
 
 // ─── Ingredient card (Phase 1) ────────────────────────────────────────────────
 function IngredientCard({ row, index, suppliers, readOnly, onChange, onSupplierChange, onRemove }) {
-  const [dropdownOpen, setDropdownOpen] = useState(false)
-  const [search, setSearch]             = useState('')
+  const [dropdownOpen,    setDropdownOpen]    = useState(false)
+  const [search,          setSearch]          = useState('')
+  const [requestingNew,   setRequestingNew]   = useState(false)
+  const [requestName,     setRequestName]     = useState('')
+
+  const expanded = readOnly || !!row.name?.trim()
 
   const selectedSupplier = suppliers.find(s => s.id === row.supplierId)
 
@@ -505,9 +541,9 @@ function IngredientCard({ row, index, suppliers, readOnly, onChange, onSupplierC
   }, {})
 
   return (
-    <div className="border border-gray-100 rounded-2xl overflow-visible bg-gray-50/30">
+    <div className={`border rounded-2xl overflow-visible transition-all ${expanded ? 'border-gray-200 bg-white' : 'border-gray-100 bg-gray-50/40'}`}>
       {/* Name row */}
-      <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+      <div className="flex items-center gap-3 px-4 py-2.5">
         <span className="text-xs font-bold text-gray-300 w-4 text-right flex-shrink-0">{index + 1}</span>
         <input
           disabled={readOnly} value={row.name}
@@ -516,89 +552,138 @@ function IngredientCard({ row, index, suppliers, readOnly, onChange, onSupplierC
           className="flex-1 px-3 py-2.5 rounded-xl border border-gray-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-black bg-white disabled:bg-gray-50 disabled:text-gray-500"
         />
         {!readOnly && (
-          <button onClick={onRemove} className="text-gray-300 hover:text-red-400 transition text-xl flex-shrink-0">×</button>
+          <button onClick={onRemove} className="text-gray-200 hover:text-red-400 transition text-xl flex-shrink-0">×</button>
         )}
       </div>
 
-      {/* Qty + unit + notes */}
-      <div className="flex items-center gap-2 px-4 pb-2 pl-11">
-        <input
-          disabled={readOnly} value={row.quantity}
-          onChange={e => onChange('quantity', e.target.value)}
-          placeholder="Qty"
-          className="w-20 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white disabled:bg-gray-50"
-        />
-        <select
-          disabled={readOnly} value={row.unit}
-          onChange={e => onChange('unit', e.target.value)}
-          className="px-2 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none bg-white disabled:bg-gray-50"
-        >
-          {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-        </select>
-        <input
-          disabled={readOnly} value={row.notes}
-          onChange={e => onChange('notes', e.target.value)}
-          placeholder="Notes — grade, organic, etc."
-          className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white disabled:bg-gray-50"
-        />
-      </div>
-
-      {/* Supplier selector */}
-      <div className="px-4 pb-3 pl-11 relative">
-        <button
-          onClick={() => !readOnly && setDropdownOpen(o => !o)}
-          className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl border text-sm transition text-left ${selectedSupplier ? 'border-blue-200 bg-blue-50 text-blue-900' : 'border-gray-200 text-gray-400 bg-white hover:border-gray-400'} ${readOnly ? 'cursor-default' : ''}`}
-        >
-          <span className="flex-shrink-0 text-base">🏭</span>
-          <span className="flex-1 truncate">
-            {selectedSupplier
-              ? <><strong>{selectedSupplier.name}</strong><span className="font-normal text-blue-500 ml-1.5">· {selectedSupplier.category}</span></>
-              : <span className="text-gray-400">Select approved supplier (optional)</span>
-            }
-          </span>
-          {selectedSupplier && !readOnly && (
-            <button
-              onClick={e => { e.stopPropagation(); onSupplierChange('') }}
-              className="text-blue-400 hover:text-blue-700 text-lg font-bold leading-none flex-shrink-0"
-            >×</button>
-          )}
-        </button>
-
-        {dropdownOpen && (
-          <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-2xl shadow-2xl z-[200] overflow-hidden">
-            <div className="p-3 border-b border-gray-100">
-              <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Search suppliers..."
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black"
-              />
-            </div>
-            <div className="max-h-60 overflow-y-auto">
-              {Object.keys(grouped).length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">No suppliers found</p>
-              ) : Object.entries(grouped).map(([cat, items]) => (
-                <div key={cat}>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest px-4 py-2 bg-gray-50">{cat}</p>
-                  {items.map(s => (
-                    <button key={s.id} onClick={() => { onSupplierChange(s.id); setDropdownOpen(false); setSearch('') }}
-                      className={`w-full text-left px-4 py-3 hover:bg-blue-50 transition border-b border-gray-50 last:border-0 ${row.supplierId === s.id ? 'bg-blue-50' : ''}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-gray-900">{s.name}</p>
-                        {s.certifications && <span className="text-xs text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">{s.certifications}</span>}
-                      </div>
-                      {s.description && <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>}
-                      {s.contact && <p className="text-xs text-gray-400 mt-0.5">{s.contact}</p>}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-            <div className="p-2 border-t border-gray-100 text-right">
-              <button onClick={() => { setDropdownOpen(false); setSearch('') }} className="text-xs text-gray-400 hover:text-black px-2 py-1 transition">Close</button>
-            </div>
+      {/* Details — only shown once name has text */}
+      {expanded && (
+        <div className="px-4 pb-3 pl-11 space-y-2">
+          {/* Qty + unit + notes + risk */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              disabled={readOnly} value={row.quantity}
+              onChange={e => onChange('quantity', e.target.value)}
+              placeholder="Qty"
+              className="w-20 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white disabled:bg-gray-50"
+            />
+            <select
+              disabled={readOnly} value={row.unit}
+              onChange={e => onChange('unit', e.target.value)}
+              className="px-2 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none bg-white disabled:bg-gray-50"
+            >
+              {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+            <input
+              disabled={readOnly} value={row.notes}
+              onChange={e => onChange('notes', e.target.value)}
+              placeholder="Notes — grade, organic, etc."
+              className="flex-1 min-w-0 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white disabled:bg-gray-50"
+            />
+            <input
+              disabled={readOnly} value={row.riskFactor || ''}
+              onChange={e => onChange('riskFactor', e.target.value)}
+              placeholder="Risk flag?"
+              className="w-28 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50/60 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:bg-gray-50 flex-shrink-0"
+              title="e.g. microbe, allergen, shelf life"
+            />
           </div>
-        )}
-      </div>
+          {/* Supplier selector */}
+          <div className="relative">
+            <button
+              onClick={() => !readOnly && setDropdownOpen(o => !o)}
+              className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl border text-sm transition text-left ${selectedSupplier || row.supplierRequest ? 'border-blue-200 bg-blue-50 text-blue-900' : 'border-gray-200 text-gray-400 bg-white hover:border-gray-400'} ${readOnly ? 'cursor-default' : ''}`}
+            >
+              <span className="flex-shrink-0 text-base">🏭</span>
+              <span className="flex-1 truncate">
+                {row.supplierRequest
+                  ? <span className="text-amber-700">⚠ Requested: {row.supplierRequest}</span>
+                  : selectedSupplier
+                  ? <><strong>{selectedSupplier.name}</strong><span className="font-normal text-blue-500 ml-1.5">· {selectedSupplier.category}</span></>
+                  : <span className="text-gray-400">Select approved supplier (optional)</span>
+                }
+              </span>
+              {(selectedSupplier || row.supplierRequest) && !readOnly && (
+                <button onClick={e => { e.stopPropagation(); onSupplierChange('') }}
+                  className="text-blue-400 hover:text-blue-700 text-lg font-bold leading-none flex-shrink-0">×</button>
+              )}
+            </button>
+
+            {dropdownOpen && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-2xl shadow-2xl z-[200] overflow-hidden">
+                <div className="p-3 border-b border-gray-100">
+                  <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+                    placeholder="Search suppliers..."
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
+                </div>
+                <div className="max-h-60 overflow-y-auto">
+                  {Object.keys(grouped).length === 0
+                    ? <p className="text-sm text-gray-400 text-center py-6">No suppliers found</p>
+                    : Object.entries(grouped).map(([cat, items]) => (
+                      <div key={cat}>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest px-4 py-2 bg-gray-50">{cat}</p>
+                        {items.map(s => (
+                          <button key={s.id} onClick={() => { onSupplierChange(s.id); setDropdownOpen(false); setSearch('') }}
+                            className={`w-full text-left px-4 py-3 hover:bg-blue-50 transition border-b border-gray-50 last:border-0 ${row.supplierId === s.id ? 'bg-blue-50' : ''}`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-semibold text-gray-900">{s.name}</p>
+                              {s.certifications && <span className="text-xs text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">{s.certifications}</span>}
+                            </div>
+                            {s.description && <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>}
+                            {s.contact && <p className="text-xs text-gray-400 mt-0.5">{s.contact}</p>}
+                          </button>
+                        ))}
+                      </div>
+                    ))
+                  }
+                </div>
+                <div className="border-t border-gray-100">
+                  {requestingNew ? (
+                    <div className="p-3 space-y-2">
+                      <p className="text-xs font-semibold text-amber-700">Request a new supplier</p>
+                      <input
+                        autoFocus
+                        value={requestName}
+                        onChange={e => setRequestName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && requestName.trim()) {
+                            onSupplierChange('__request__:' + requestName.trim())
+                            setDropdownOpen(false); setSearch(''); setRequestingNew(false); setRequestName('')
+                          }
+                          if (e.key === 'Escape') { setRequestingNew(false); setRequestName('') }
+                        }}
+                        placeholder="Supplier name..."
+                        className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (!requestName.trim()) return
+                            onSupplierChange('__request__:' + requestName.trim())
+                            setDropdownOpen(false); setSearch(''); setRequestingNew(false); setRequestName('')
+                          }}
+                          disabled={!requestName.trim()}
+                          className="flex-1 py-2 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-900 transition disabled:opacity-40"
+                        >Submit request</button>
+                        <button onClick={() => { setRequestingNew(false); setRequestName('') }}
+                          className="px-3 py-2 border border-gray-200 text-gray-500 text-xs rounded-lg hover:bg-gray-50 transition">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2 flex items-center justify-between gap-2">
+                      <button onClick={() => setRequestingNew(true)}
+                        className="text-xs text-amber-600 hover:text-amber-800 font-medium px-2 py-1 transition flex items-center gap-1">
+                        ⚠ Can't find it? Request new supplier
+                      </button>
+                      <button onClick={() => { setDropdownOpen(false); setSearch('') }} className="text-xs text-gray-400 hover:text-black px-2 py-1 transition">Close</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -615,9 +700,10 @@ function DeliveryRow({ row, index, readOnly, onDateChange, onToggleDelivered }) 
             <p className="text-sm font-semibold text-gray-900 truncate">{row.name}</p>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <span className="text-xs text-gray-400">{row.quantity} {row.unit}</span>
-              {row.supplierName && (
-                <span className="text-xs text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">{row.supplierName}</span>
-              )}
+              {row.supplierRequest
+                ? <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">⚠ Requested: {row.supplierRequest}</span>
+                : row.supplierName && <span className="text-xs text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">{row.supplierName}</span>
+              }
               {row.notes && <span className="text-xs text-gray-400 italic truncate">— {row.notes}</span>}
             </div>
           </div>

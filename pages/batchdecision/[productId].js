@@ -15,11 +15,14 @@ export default function BatchDecisionPage() {
   const [saving,   setSaving]   = useState(false)
 
   const [form, setForm] = useState({
-    decision:    '',   // 'approved' | 'approved-with-note' | 'rejected'
-    approvedBy:  '',
-    approvedAt:  new Date().toISOString().split('T')[0],
-    notes:       '',
-    nextStep:    '',   // what happens next
+    decision:         '',
+    approvedBy:       '',
+    approvedAt:       new Date().toISOString().split('T')[0],
+    notes:            '',
+    nextStep:         '',
+    productionFacility: '',
+    productionDateBooked: '',
+    assignedCook:     '',
   })
 
   const set = (f, v) => setForm(p => ({ ...p, [f]: v }))
@@ -39,11 +42,14 @@ export default function BatchDecisionPage() {
       if (bd?.decision) {
         setForm(f => ({
           ...f,
-          decision:   bd.decision   || '',
-          approvedBy: bd.approvedBy || '',
-          approvedAt: bd.approvedAt?.split('T')[0] || f.approvedAt,
-          notes:      bd.notes      || '',
-          nextStep:   bd.nextStep   || '',
+          decision:             bd.decision             || '',
+          approvedBy:           bd.approvedBy           || '',
+          approvedAt:           bd.approvedAt?.split('T')[0] || f.approvedAt,
+          notes:                bd.notes                || '',
+          nextStep:             bd.nextStep             || '',
+          productionFacility:   bd.productionFacility   || '',
+          productionDateBooked: bd.productionDateBooked || '',
+          assignedCook:         bd.assignedCook         || '',
         }))
       }
 
@@ -74,8 +80,11 @@ export default function BatchDecisionPage() {
         'stages.batchDecision.decision':    form.decision,
         'stages.batchDecision.approvedBy':  form.approvedBy,
         'stages.batchDecision.approvedAt':  new Date(form.approvedAt).toISOString(),
-        'stages.batchDecision.notes':       form.notes,
-        'stages.batchDecision.nextStep':    form.nextStep,
+        'stages.batchDecision.productionFacility':   form.productionFacility,
+        'stages.batchDecision.productionDateBooked': form.productionDateBooked,
+        'stages.batchDecision.assignedCook':         form.assignedCook,
+        'stages.batchDecision.notes':                form.notes,
+        'stages.batchDecision.nextStep':             form.nextStep,
         ...(isApproved ? { 'stages.labTesting.status': 'in-progress' } : {}),
       })
       router.push(`/product/${productId}`)
@@ -237,6 +246,39 @@ export default function BatchDecisionPage() {
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50" />
               </div>
             ) : null}
+
+            {/* Production booking — so Asif can schedule capacity */}
+            {(form.decision === 'approved' || form.decision === 'approved-with-note') && (
+              <div className="border-t border-gray-100 pt-5 space-y-4">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Production booking</p>
+                <p className="text-xs text-gray-400">Book the factory slot now so Asif can block capacity and schedule the run.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Production facility</label>
+                    <input list="facility-list" value={form.productionFacility} onChange={e => set('productionFacility', e.target.value)} disabled={done}
+                      placeholder="e.g. Red Distillery"
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50" />
+                    <datalist id="facility-list">
+                      {teamList.map(t => <option key={t} value={t} />)}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Production date booked</label>
+                    <input type="date" value={form.productionDateBooked} onChange={e => set('productionDateBooked', e.target.value)} disabled={done}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Assigned cook / supervisor</label>
+                    <input list="cook-list" value={form.assignedCook} onChange={e => set('assignedCook', e.target.value)} disabled={done}
+                      placeholder="e.g. Dima"
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50" />
+                    <datalist id="cook-list">
+                      {teamList.map(t => <option key={t} value={t} />)}
+                    </datalist>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

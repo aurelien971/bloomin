@@ -17,6 +17,7 @@ export default function SuppliersPage() {
   const router = useRouter()
 
   const [suppliers,    setSuppliers]    = useState([])
+  const [requests,     setRequests]     = useState([])
   const [loading,      setLoading]      = useState(true)
   const [modal,        setModal]        = useState(false)
   const [editing,      setEditing]      = useState(null)   // supplier doc being edited
@@ -31,11 +32,15 @@ export default function SuppliersPage() {
   const fetch = async () => {
     setLoading(true)
     try {
-      const snap = await getDocs(collection(db, 'suppliers'))
+      const [snap, reqSnap] = await Promise.all([
+        getDocs(collection(db, 'suppliers')),
+        getDocs(collection(db, 'supplierRequests')),
+      ])
       const sorted = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name))
       setSuppliers(sorted)
+      setRequests(reqSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)))
     } catch (e) { console.error(e) }
     setLoading(false)
   }
@@ -150,6 +155,61 @@ export default function SuppliersPage() {
         {/* Main content */}
         <div className="flex-1 min-w-0 space-y-6">
 
+          {/* Pending supplier requests — always visible if any exist */}
+          {requests.length > 0 && (
+            <div className={`rounded-2xl overflow-hidden border-2 ${requests.filter(r => r.status === 'pending').length > 0 ? 'border-amber-400 bg-amber-50' : 'border-gray-100 bg-gray-50'}`}>
+              <div className={`px-5 py-3.5 flex items-center justify-between ${requests.filter(r => r.status === 'pending').length > 0 ? 'bg-amber-400' : 'bg-gray-100'}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{requests.filter(r => r.status === 'pending').length > 0 ? '⚠️' : '✓'}</span>
+                  <p className={`text-sm font-bold ${requests.filter(r => r.status === 'pending').length > 0 ? 'text-white' : 'text-gray-500'}`}>
+                    {requests.filter(r => r.status === 'pending').length > 0
+                      ? `${requests.filter(r => r.status === 'pending').length} new supplier request${requests.filter(r => r.status === 'pending').length !== 1 ? 's' : ''} — action needed`
+                      : 'All supplier requests handled'}
+                  </p>
+                </div>
+              </div>
+              {requests.filter(r => r.status === 'pending').length > 0 && (
+                <div className="divide-y divide-amber-100">
+                  {requests.filter(r => r.status === 'pending').map(req => (
+                    <div key={req.id} className="px-5 py-4 flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <p className="text-sm font-bold text-gray-900">{req.supplierName}</p>
+                          <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-semibold">New</span>
+                        </div>
+                        <p className="text-xs text-gray-600">
+                          Needed for <strong>{req.ingredientName || 'ingredient'}</strong>
+                          {' '}· {req.productName} / {req.clientName}
+                          {req.requestedBy ? <span className="text-gray-400"> · requested by {req.requestedBy}</span> : ''}
+                          {req.createdAt ? <span className="text-gray-400"> · {new Date(req.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</span> : ''}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => {
+                            setForm({ ...EMPTY_SUPPLIER, name: req.supplierName })
+                            setEditing(null)
+                            setModal(true)
+                            updateDoc(doc(db, 'supplierRequests', req.id), { status: 'actioned' }).catch(console.error)
+                            setRequests(rs => rs.map(r => r.id === req.id ? { ...r, status: 'actioned' } : r))
+                          }}
+                          className="px-3 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-900 transition whitespace-nowrap"
+                        >+ Add to directory</button>
+                        <button
+                          onClick={() => {
+                            updateDoc(doc(db, 'supplierRequests', req.id), { status: 'rejected' }).catch(console.error)
+                            setRequests(rs => rs.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r))
+                          }}
+                          className="px-3 py-1.5 border border-gray-200 text-gray-500 text-xs font-medium rounded-lg hover:bg-gray-50 transition"
+                        >Dismiss</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Search */}
           <input
             type="text"
@@ -181,7 +241,7 @@ export default function SuppliersPage() {
                 <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
                   {/* Table header */}
                   <div className="hidden sm:grid grid-cols-12 gap-4 px-5 py-3 border-b border-gray-100 bg-gray-50">
-                    {[['Supplier', 4], ['Description', 4], ['Contact', 3], ['', 1]].map(([h, span]) => (
+                    {[['Supplier', 4], ['Description', 3], ['Contact', 3], ['', 2]].map(([h, span]) => (
                       <p key={h} className={`text-xs font-semibold text-gray-400 uppercase tracking-wide col-span-${span}`}>{h}</p>
                     ))}
                   </div>
@@ -206,7 +266,7 @@ export default function SuppliersPage() {
                         </div>
 
                         {/* Description */}
-                        <div className="sm:col-span-4 mb-2 sm:mb-0">
+                        <div className="sm:col-span-3 mb-2 sm:mb-0">
                           <p className="text-sm text-gray-600 line-clamp-2">{s.description || <span className="text-gray-300 italic">—</span>}</p>
                         </div>
 
@@ -219,7 +279,7 @@ export default function SuppliersPage() {
                         </div>
 
                         {/* Actions */}
-                        <div className="sm:col-span-1 flex items-center gap-2 justify-end">
+                        <div className="sm:col-span-2 flex items-center gap-2 justify-end">
                           <button
                             onClick={() => openEdit(s)}
                             className="px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-100 transition"

@@ -18,18 +18,32 @@ export default function Step1Overview({ data, onChange }) {
         <input placeholder="e.g. Like a matcha latte but more floral and less bitter" value={data.inspiration || ''} onChange={e => set('inspiration', e.target.value)} />
       </Field>
 
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+        <p className="text-xs font-semibold text-amber-800">These are your desired dates — not a commitment from us. We'll align on a realistic timeline once we've reviewed your brief.</p>
+      </div>
+
+      <Field label="Desired sample date" hint="When would you ideally like to receive and taste the first physical samples?">
+        <input type="date" value={data.samplesNeededBy || ''} onChange={e => set('samplesNeededBy', e.target.value)} />
+      </Field>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field
-          label="When do you need samples?"
-          hint="The date you'd like to receive and taste the first physical samples."
+          label="Desired date to land at distributor"
+          hint="Products typically need to arrive at the distributor 2–4 weeks before in-store launch."
         >
-          <input type="date" value={data.samplesNeededBy || ''} onChange={e => set('samplesNeededBy', e.target.value)} />
+          <input type="date" value={data.distributorDate || ''} onChange={e => set('distributorDate', e.target.value)} />
+          {data.launchDate && data.distributorDate && data.distributorDate >= data.launchDate && (
+            <p className="text-xs text-red-500 mt-1">⚠ Must be before the in-store launch date</p>
+          )}
         </Field>
         <Field
-          label="When do you need full production ready?"
-          hint="The date this product needs to be live — on shelves, on menu, or shipping to customers."
+          label="Desired in-store launch date"
+          hint="When does this product need to go live in store or on the menu?"
         >
-          <input type="date" value={data.productionDate || ''} onChange={e => set('productionDate', e.target.value)} />
+          <input type="date" value={data.launchDate || ''} onChange={e => set('launchDate', e.target.value)} />
+          {data.distributorDate && data.launchDate && data.launchDate <= data.distributorDate && (
+            <p className="text-xs text-red-500 mt-1">⚠ Must be after the distributor arrival date</p>
+          )}
         </Field>
       </div>
     </div>

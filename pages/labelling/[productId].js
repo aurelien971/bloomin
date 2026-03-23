@@ -142,7 +142,8 @@ export default function LabellingPage() {
     try {
       const update = {
         'stages.labelling.data':      data,
-        'stages.labelling.updatedAt': new Date().toISOString(),
+        'stages.labelling.updatedAt':    new Date().toISOString(),
+        'stages.labelling.labelVersion': (product?.stages?.labelling?.labelVersion || 0) + 1,
       }
       if (markComplete) {
         update['stages.labelling.status']      = 'complete'
@@ -220,6 +221,12 @@ export default function LabellingPage() {
           <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold">{product?.clientName}</p>
           <h1 className="text-lg font-bold text-gray-900 mt-0.5">{product?.productName} — Labelling</h1>
           <p className="text-sm text-gray-400 mt-1">Allergen declaration, nutritional panel, product claims and label design files.</p>
+          {product?.stages?.labelling?.labelVersion && (
+            <p className="text-xs mt-1">
+              <span className="font-semibold text-gray-600">Label v{product.stages.labelling.labelVersion}</span>
+              {product.stages.labelling.updatedAt ? <span className="text-gray-400"> · Last saved {new Date(product.stages.labelling.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at {new Date(product.stages.labelling.updatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span> : ''}
+            </p>
+          )}
         </div>
 
         {/* Label ownership toggle */}

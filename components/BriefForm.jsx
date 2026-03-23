@@ -28,8 +28,13 @@ export default function BriefForm({ brief }) {
   const StepComponent = STEPS[step].component
   const isLast = step === STEPS.length - 1
 
+  const stripFiles = (data) => ({
+    ...data,
+    referencePhotos: (data.referencePhotos || []).map(p => ({ name: p.name })),
+  })
+
   const save = async (data) => {
-    try { await updateDoc(doc(db, 'briefs', brief.id), { formData: data }) }
+    try { await updateDoc(doc(db, 'briefs', brief.id), { formData: stripFiles(data) }) }
     catch (e) { console.error('Auto-save failed', e) }
   }
 
@@ -40,10 +45,17 @@ export default function BriefForm({ brief }) {
   const handleSubmit = async () => {
     setSaving(true)
     const submittedAt = new Date().toISOString()
-    const submittedBy = formData.contactName || ''
+    const submittedBy = formData.contactName || formData.contact_npd?.name || ''
+
+    // Strip File objects — Firestore can't serialize them, only keep metadata
+    const cleanData = {
+      ...formData,
+      referencePhotos: (formData.referencePhotos || []).map(p => ({ name: p.name })),
+    }
+
     try {
       await updateDoc(doc(db, 'briefs', brief.id), {
-        formData,
+        formData:    cleanData,
         submitted:   true,
         submittedAt,
         submittedBy,

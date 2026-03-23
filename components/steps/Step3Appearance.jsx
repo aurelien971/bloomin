@@ -35,12 +35,6 @@ export default function Step3Appearance({ data, onChange }) {
             value={data.syrupColour || ''}
             onChange={e => set('syrupColour', e.target.value)}
           />
-          {data.syrupColour && data.syrupColour.startsWith('#') && (
-            <div className="mt-2 flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg border border-gray-200" style={{ backgroundColor: data.syrupColour }} />
-              <span className="text-xs text-gray-400">Colour preview</span>
-            </div>
-          )}
         </Field>
 
         <Field
@@ -64,12 +58,35 @@ export default function Step3Appearance({ data, onChange }) {
         </div>
       </Field>
 
-      <Field label="Any colour references?" hint="A photo link, a competitor product, a drink you've seen.">
+      <Field label="Any colour or appearance references?" hint="Upload photos of competitor products, drinks you love, or anything that captures the vibe — add as many as you like.">
         <input
-          placeholder="e.g. Similar to a pink lemonade, or see this link: ..."
+          placeholder="Link to an image or describe a reference product..."
           value={data.colourReference || ''}
           onChange={e => set('colourReference', e.target.value)}
         />
+        <div className="mt-2 space-y-2">
+          {(data.referencePhotos || []).map((photo, i) => (
+            <div key={i} className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+              <span className="text-sm">📎</span>
+              <span className="text-sm text-green-800 truncate flex-1">{photo.name}</span>
+              <button type="button" onClick={() => set('referencePhotos', (data.referencePhotos || []).filter((_, idx) => idx !== i))}
+                className="text-green-400 hover:text-red-500 font-bold text-lg leading-none flex-shrink-0">×</button>
+            </div>
+          ))}
+          <label className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 cursor-pointer hover:border-gray-400 transition">
+            <span>📎</span>
+            <span>{(data.referencePhotos || []).length > 0 ? 'Add another reference photo' : 'Upload reference photos (optional)'}</span>
+            <input type="file" accept="image/*,.pdf" className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) {
+                  set('referencePhotos', [...(data.referencePhotos || []), { name: file.name, file }])
+                  e.target.value = ''
+                }
+              }}
+            />
+          </label>
+        </div>
       </Field>
 
     </div>

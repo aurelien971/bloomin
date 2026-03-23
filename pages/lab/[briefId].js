@@ -134,6 +134,7 @@ export default function LabSheet() {
   const [scopedIngredients, setScopedIngredients] = useState([])
   const [userList,          setUserList]          = useState([])
   const [factories,         setFactories]         = useState([])  // from Firestore
+  const [nextUid,           setNextUid]           = useState('001')
   const [activeSection,     setActiveSection]     = useState('recipe')
   const [briefOpen,         setBriefOpen]         = useState({ recipe: true, specs: true, application: true, production: true })
   const toggleBrief = (s) => setBriefOpen(b => ({ ...b, [s]: !b[s] }))
@@ -161,6 +162,17 @@ export default function LabSheet() {
     if (docs.length > 0) {
       setActiveId(docs[0].id); setData({ ...EMPTY_DATA, ...docs[0].data }); setIsSignedOff(docs[0].status === 'signed-off')
     }
+    // Compute next global UID across ALL lab sheets in the company
+    try {
+      const allSnap = await getDocs(collection(db, 'labSheets'))
+      const highest = allSnap.docs.reduce((max, d) => {
+        const uid = d.data().sampleUid
+        if (!uid) return max
+        const num = parseInt(uid.replace(/\D/g, ''), 10)
+        return isNaN(num) ? max : Math.max(max, num)
+      }, 0)
+      setNextUid(String(highest + 1).padStart(3, '0'))
+    } catch (e) { console.error(e) }
     // Load cooks for version modal
     try {
       const uSnap = await getDocs(collection(db, 'users'))
@@ -182,15 +194,18 @@ export default function LabSheet() {
     if (!brief || !versionName.trim()) return
     setSaving(true)
     const vNum = versions.length + 1
+    const sampleUid = nextUid
     const newDoc = {
       briefId, productName: brief.productName, clientName: brief.clientName,
       versionNumber: vNum, versionName: versionName.trim(),
       versionNote: versionNote.trim(), versionCook: versionCook,
+      sampleUid,
       status: 'draft', createdAt: new Date().toISOString(), data,
     }
     const docRef = await addDoc(collection(db, 'labSheets'), newDoc)
     const nv = { id: docRef.id, ...newDoc }
     setVersions(v => [nv, ...v]); setActiveId(docRef.id); setIsSignedOff(false)
+    setNextUid(String(parseInt(sampleUid, 10) + 1).padStart(3, '0'))
     setVersionModal(false); setVersionNote(''); setVersionName(''); setVersionCook('')
     setSaving(false)
   }
@@ -305,6 +320,7 @@ export default function LabSheet() {
                     className={`w-full text-left px-3 py-2.5 rounded-xl transition ${activeId === v.id ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-100'}`}>
                     <div className="flex items-center justify-between mb-0.5">
                       <span className="text-xs font-bold text-gray-400">V{v.versionNumber}</span>
+                      {v.sampleUid && <span className="text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">#{v.sampleUid}</span>}
                       {v.status === 'signed-off' && <span className="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-full">✓</span>}
                     </div>
                     <p className={`text-sm font-semibold truncate ${activeId === v.id ? 'text-white' : 'text-gray-900'}`}>{v.versionName}</p>
@@ -376,20 +392,48 @@ export default function LabSheet() {
                     />
 
                     {/* Batch size gate */}
-                    <div className={`rounded-xl border px-5 py-4 ${!data.requiredLitres ? 'border-amber-200 bg-amber-50' : 'border-gray-100 bg-gray-50'}`}>
-                      <p className="text-xs font-bold text-gray-600 uppercase tracking-widest mb-3">Batch size *</p>
-                      <div className="flex items-center gap-3">
-                        <input type="number" min="0" placeholder="e.g. 750" value={data.requiredLitres}
-                          onChange={e => set('requiredLitres', e.target.value)} disabled={readOnly}
-                          className={`w-32 px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-100 ${!data.requiredLitres && !readOnly ? 'border-amber-300' : 'border-gray-200'}`} />
-                        <select value={data.requiredLitresUnit || 'L'} onChange={e => set('requiredLitresUnit', e.target.value)} disabled={readOnly}
-                          className="px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none bg-white disabled:bg-gray-100">
-                          {['L', 'mL'].map(u => <option key={u} value={u}>{u}</option>)}
-                        </select>
-                        {data.requiredLitres && <p className="text-sm text-gray-500">Quantities below = for <strong>{data.requiredLitres}{data.requiredLitresUnit || 'L'}</strong></p>}
-                      </div>
-                      {!data.requiredLitres && !readOnly && <p className="text-xs text-amber-600 mt-2">Set batch size before adding ingredients</p>}
-                    </div>
+                    {(() => {
+                      const hasIngredients = data.ingredients?.some(r => r.ingredient?.trim())
+                      const batchLocked = hasIngredients && data.batchSizeLocked
+                      return (
+                        <div className={`rounded-xl border px-5 py-4 ${!data.requiredLitres ? 'border-amber-200 bg-amber-50' : batchLocked ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-gray-50'}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-bold text-gray-600 uppercase tracking-widest">Batch size *</p>
+                            {batchLocked && (
+                              <button onClick={() => {
+                                if (window.confirm('Changing the batch size will reset all ingredient quantities. Are you sure?')) {
+                                  set('batchSizeLocked', false)
+                                  set('ingredients', data.ingredients.map(r => ({ ...r, qty: '', qty1000L: undefined })))
+                                }
+                              }} className="text-xs text-gray-400 hover:text-black transition font-medium">
+                                ✎ Change (resets quantities)
+                              </button>
+                            )}
+                          </div>
+                          {batchLocked ? (
+                            <p className="text-sm font-semibold text-green-800">🔒 {data.requiredLitres}{data.requiredLitresUnit || 'L'} — locked</p>
+                          ) : (
+                            <div className="flex items-center gap-3">
+                              <input type="number" min="0" placeholder="e.g. 5" value={data.requiredLitres}
+                                onChange={e => set('requiredLitres', e.target.value)} disabled={readOnly}
+                                className={`w-32 px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-100 ${!data.requiredLitres && !readOnly ? 'border-amber-300' : 'border-gray-200'}`} />
+                              <select value={data.requiredLitresUnit || 'L'} onChange={e => set('requiredLitresUnit', e.target.value)} disabled={readOnly}
+                                className="px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none bg-white disabled:bg-gray-100">
+                                {['L', 'mL'].map(u => <option key={u} value={u}>{u}</option>)}
+                              </select>
+                              {data.requiredLitres && !readOnly && (
+                                <button onClick={() => set('batchSizeLocked', true)}
+                                  className="px-3 py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-gray-900 transition">
+                                  Lock size
+                                </button>
+                              )}
+                              {data.requiredLitres && <p className="text-sm text-gray-500">Quantities below = for <strong>{data.requiredLitres}{data.requiredLitresUnit || 'L'}</strong></p>}
+                            </div>
+                          )}
+                          {!data.requiredLitres && !readOnly && <p className="text-xs text-amber-600 mt-2">Set batch size before adding ingredients</p>}
+                        </div>
+                      )
+                    })()}
 
                     {/* Ingredient table */}
                     <div className={!data.requiredLitres && !readOnly ? 'opacity-40 pointer-events-none select-none' : ''}>
@@ -767,7 +811,16 @@ export default function LabSheet() {
                       </div>
                     )}
 
-                    <Field label="Estimated cook time per batch" value={data.estimatedCookTime} onChange={v => set('estimatedCookTime', v)} placeholder="e.g. 45 mins" disabled={readOnly} />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Field label="Estimated cook time per batch" value={data.estimatedCookTime} onChange={v => set('estimatedCookTime', v)} placeholder="e.g. 45 mins" disabled={readOnly} />
+                      <Field label="Minimum cook time" value={data.minCookTime} onChange={v => set('minCookTime', v)} placeholder="e.g. hold at 80°C for 30 mins" disabled={readOnly}
+                        hint="The theoretical minimum — e.g. a required hold time for safety or flavour." />
+                    </div>
+                    {data.hotOrColdProcess === 'Hot fill' && (
+                      <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                        <p className="text-xs font-semibold text-blue-700">Hot fill reminder: minimum fill temperature is typically 82°C. Confirm with the factory.</p>
+                      </div>
+                    )}
                     <TextArea label="Production limitations to flag" value={data.productionLimitations} onChange={v => set('productionLimitations', v)} disabled={readOnly} hint="Anything ops or Tom needs to know." />
 
                     {/* Retain sample */}
@@ -861,6 +914,14 @@ export default function LabSheet() {
                 <p className="text-xs text-gray-500">{brief.clientName}</p>
               </div>
             )}
+
+            <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sample UID</p>
+                <p className="text-xs text-gray-400 mt-0.5">Company-wide reference number — used on labels and lab records</p>
+              </div>
+              <span className="text-lg font-mono font-bold text-black">#{nextUid}</span>
+            </div>
 
             <div className="space-y-3">
               <div>
