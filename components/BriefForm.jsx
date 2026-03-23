@@ -19,7 +19,7 @@ const STEPS = [
   { label: 'Commercial',  emoji: '💼', component: Step7Commercial  },
 ]
 
-export default function BriefForm({ brief }) {
+export default function BriefForm({ brief, onStepChange }) {
   const [step,      setStep]      = useState(0)
   const [formData,  setFormData]  = useState(brief.formData || {})
   const [saving,    setSaving]    = useState(false)
@@ -27,6 +27,12 @@ export default function BriefForm({ brief }) {
 
   const StepComponent = STEPS[step].component
   const isLast = step === STEPS.length - 1
+
+  const goToStep = (n) => {
+    setStep(n)
+    if (onStepChange) onStepChange(n)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   const stripFiles = (data) => ({
     ...data,
@@ -39,8 +45,8 @@ export default function BriefForm({ brief }) {
   }
 
   const handleChange = (data) => { setFormData(data); save(data) }
-  const next = () => { window.scrollTo({ top: 0, behavior: 'smooth' }); setStep(s => s + 1) }
-  const back = () => { window.scrollTo({ top: 0, behavior: 'smooth' }); setStep(s => s - 1) }
+  const next = () => goToStep(step + 1)
+  const back = () => goToStep(step - 1)
 
   const handleSubmit = async () => {
     setSaving(true)

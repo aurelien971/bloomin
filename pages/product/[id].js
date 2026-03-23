@@ -426,7 +426,7 @@ export default function ProductPage() {
         </div>
       )}
 
-      <FeedbackWidget page="product" pageId={id} />
+      <FeedbackWidget page="product" pageId={id} label={product ? `Product — ${product.productName}` : 'Product'} />
     </div>
   )
 }

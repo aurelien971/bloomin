@@ -626,7 +626,7 @@ export default function ValidationPage() {
 
       </div>
 
-      <FeedbackWidget page="validation" pageId={productId} />
+      <FeedbackWidget page="validation" label="Test Batch Validation" pageId={productId} />
     </div>
   )
 }

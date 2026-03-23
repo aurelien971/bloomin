@@ -207,6 +207,9 @@ export default function Dashboard() {
   const [expanded,         setExpanded]         = useState(null)
   const [userMenuOpen,     setUserMenuOpen]     = useState(false)
   const [copied,           setCopied]           = useState(null)
+  const [allFeedback,      setAllFeedback]      = useState([])
+  const [feedbackOpen,     setFeedbackOpen]     = useState(false)
+  const [feedbackLoading,  setFeedbackLoading]  = useState(false)
 
   const [productModal,     setProductModal]     = useState(false)
   const [clientModal,      setClientModal]      = useState(false)
@@ -272,6 +275,17 @@ export default function Dashboard() {
       setProducts(pSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     } catch (e) { console.error(e) }
     setLoading(false)
+  }
+
+  const fetchFeedback = async () => {
+    setFeedbackLoading(true)
+    try {
+      const snap = await getDocs(query(collection(db, 'feedback'), where('status', '==', 'visible')))
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      docs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      setAllFeedback(docs)
+    } catch (e) { console.error(e) }
+    setFeedbackLoading(false)
   }
 
   // ── Create product ────────────────────────────────────────────────────────
@@ -538,6 +552,63 @@ export default function Dashboard() {
 
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full space-y-6">
+
+        {/* Admin feedback feed — Product Director only */}
+        {(currentUser?.role === 'Product Director' || currentUser?.name === 'Aurelien') && (
+          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            <button
+              onClick={() => { setFeedbackOpen(o => !o); if (!feedbackOpen) fetchFeedback() }}
+              className="w-full px-5 py-3.5 flex items-center justify-between hover:bg-gray-50 transition"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm">💬</span>
+                <p className="text-sm font-semibold text-gray-800">Team Feedback</p>
+                {allFeedback.length > 0 && (
+                  <span className="text-xs bg-black text-white px-2 py-0.5 rounded-full font-semibold">{allFeedback.length}</span>
+                )}
+              </div>
+              <span className="text-xs text-gray-400">{feedbackOpen ? '▲ hide' : '▼ show all'}</span>
+            </button>
+            {feedbackOpen && (
+              <div className="border-t border-gray-100">
+                {feedbackLoading ? (
+                  <p className="text-xs text-gray-400 text-center py-6">Loading...</p>
+                ) : allFeedback.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-6">No feedback yet.</p>
+                ) : (
+                  <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
+                    {allFeedback.map(item => (
+                      <div key={item.id} className="px-5 py-3 flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                            <span className="text-xs font-semibold text-gray-800">{item.author}</span>
+                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{item.label || item.page}</span>
+                            <span className="text-xs text-gray-400">
+                              {new Date(item.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                            </span>
+                            {item.upvotes?.length > 0 && (
+                              <span className="text-xs text-gray-400">👍 {item.upvotes.length}</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-700">{item.text}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            await updateDoc(doc(db, 'feedback', item.id), { status: 'hidden' })
+                            setAllFeedback(f => f.filter(i => i.id !== item.id))
+                          }}
+                          className="text-xs text-gray-300 hover:text-gray-600 transition flex-shrink-0 mt-0.5"
+                        >
+                          Hide
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Controls bar */}
         <div className="flex flex-wrap items-center gap-3">
@@ -830,7 +901,7 @@ export default function Dashboard() {
         </Modal>
       )}
 
-      <FeedbackWidget page="dashboard" currentUser={currentUser} />
+      <FeedbackWidget page="dashboard" label="Dashboard" currentUser={currentUser} />
     </div>
   )
 }

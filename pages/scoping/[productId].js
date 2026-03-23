@@ -515,7 +515,7 @@ export default function ScopingPage() {
         )}
       </div>
 
-      <FeedbackWidget page="scoping" pageId={productId} />
+      <FeedbackWidget page="scoping" label="Ingredients & Sourcing" pageId={productId} />
     </div>
   )
 }

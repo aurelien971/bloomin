@@ -335,7 +335,7 @@ export default function ClientSignOffPage() {
         )}
       </div>
 
-      <FeedbackWidget page="clientsignoff" pageId={productId} />
+      <FeedbackWidget page="clientsignoff" label="Client Sign-off" pageId={productId} />
     </div>
   )
 }

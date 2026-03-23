@@ -6,6 +6,16 @@ import BriefForm from '../../components/BriefForm'
 import FeedbackWidget from '../../components/FeedbackWidget'
 import Head from 'next/head'
 
+const STEP_LABELS = [
+  'Brief — Overview',
+  'Brief — Flavour',
+  'Brief — Appearance',
+  'Brief — Usage',
+  'Brief — Ingredients',
+  'Brief — Packaging',
+  'Brief — Commercial',
+]
+
 function getBrowser(ua) {
   if (ua.includes('Edg'))     return 'Edge'
   if (ua.includes('Chrome'))  return 'Chrome'
@@ -18,9 +28,10 @@ export default function BriefPage() {
   const router  = useRouter()
   const { id }  = router.query
 
-  const [brief,   setBrief]   = useState(null)
-  const [error,   setError]   = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [brief,    setBrief]   = useState(null)
+  const [error,    setError]   = useState(false)
+  const [loading,  setLoading] = useState(true)
+  const [step,     setStep]    = useState(0)  // track step for feedback label
 
   useEffect(() => {
     if (!id) return
@@ -30,7 +41,6 @@ export default function BriefPage() {
         const b = { id: snap.id, ...snap.data() }
         setBrief(b)
         setLoading(false)
-        // Log visit
         addDoc(collection(db, 'briefs', id, 'visits'), {
           visitedAt: new Date().toLocaleString('en-GB', {
             day: '2-digit', month: 'short', year: 'numeric',
@@ -67,8 +77,12 @@ export default function BriefPage() {
   return (
     <>
       <Head><title>Product Brief — {brief.clientName}</title></Head>
-      <BriefForm brief={brief} />
-      <FeedbackWidget page="brief" pageId={brief.id} />
+      <BriefForm brief={brief} onStepChange={setStep} />
+      <FeedbackWidget
+        page="brief"
+        pageId={brief.id}
+        label={STEP_LABELS[step] || 'Client Brief'}
+      />
     </>
   )
 }

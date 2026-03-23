@@ -302,7 +302,7 @@ export default function BatchDecisionPage() {
         )}
       </div>
 
-      <FeedbackWidget page="batchdecision" pageId={productId} />
+      <FeedbackWidget page="batchdecision" label="Batch Decision" pageId={productId} />
     </div>
   )
 }

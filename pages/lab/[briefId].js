@@ -973,7 +973,7 @@ export default function LabSheet() {
           </div>
         </div>
       )}
-      <FeedbackWidget page="lab" pageId={briefId} />
+      <FeedbackWidget page="lab" pageId={briefId} label={brief ? `Lab Sheet — ${brief.productName}` : 'Lab Sheet'} />
     </div>
   )
 }

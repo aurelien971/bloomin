@@ -535,7 +535,7 @@ export default function LabellingPage() {
         </div>
 
       </div>
-      <FeedbackWidget page="labelling" pageId={productId} />
+      <FeedbackWidget page="labelling" label="Labelling" pageId={productId} />
     </div>
   )
 }

@@ -276,7 +276,7 @@ export default function LabTestPage() {
         )}
       </div>
 
-      <FeedbackWidget page="labtesting" pageId={productId} />
+      <FeedbackWidget page="labtesting" label="Lab Testing" pageId={productId} />
     </div>
   )
 }

@@ -309,7 +309,7 @@ export default function SampleSendingPage() {
         )}
       </div>
 
-      <FeedbackWidget page="samplesending" pageId={productId} />
+      <FeedbackWidget page="samplesending" label="Sample Sending" pageId={productId} />
     </div>
   )
 }

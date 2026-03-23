@@ -7,12 +7,12 @@ import { db } from '../lib/firebase'
 
 const ADMIN = 'Aurelien'
 
-export default function FeedbackWidget({ page, pageId = '' }) {
-  const [open,    setOpen]    = useState(true)
-  const [items,   setItems]   = useState([])
-  const [loading, setLoading] = useState(false)
-  const [text,    setText]    = useState('')
-  const [saving,  setSaving]  = useState(false)
+export default function FeedbackWidget({ page, pageId = '', label }) {
+  const [open,        setOpen]        = useState(true)
+  const [items,       setItems]       = useState([])
+  const [loading,     setLoading]     = useState(false)
+  const [text,        setText]        = useState('')
+  const [saving,      setSaving]      = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
   const panelRef = useRef(null)
 
@@ -28,17 +28,6 @@ export default function FeedbackWidget({ page, pageId = '' }) {
   useEffect(() => {
     if (open && currentUser) load()
   }, [open, page, pageId, currentUser])
-
-  // Close on outside click
-  useEffect(() => {
-    const handler = (e) => {
-      if (open && panelRef.current && !panelRef.current.contains(e.target)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
 
   // Don't show to unauthenticated users
   if (!currentUser) return null
@@ -65,6 +54,7 @@ export default function FeedbackWidget({ page, pageId = '' }) {
     try {
       const newDoc = {
         page, pageId,
+        label: label || page,
         text:      text.trim(),
         author:    currentUser.name,
         createdAt: new Date().toISOString(),
@@ -99,7 +89,9 @@ export default function FeedbackWidget({ page, pageId = '' }) {
   }
 
   const visibleItems = items.filter(i => isAdmin || i.status !== 'hidden')
-  const pendingCount  = items.filter(i => i.status === 'visible').length
+  const pendingCount = items.filter(i => i.status === 'visible').length
+
+  const displayLabel = label || page
 
   return (
     <div ref={panelRef} className="fixed bottom-6 right-4 z-[300] flex flex-col items-end gap-2">
@@ -112,7 +104,7 @@ export default function FeedbackWidget({ page, pageId = '' }) {
           <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-shrink-0">
             <div>
               <p className="text-xs font-bold text-gray-800 uppercase tracking-widest">Feedback</p>
-              <p className="text-xs text-gray-400 mt-0.5">{page}{pageId ? ` · ${pageId.slice(0,8)}` : ''}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{displayLabel}</p>
             </div>
             <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-700 text-lg leading-none">×</button>
           </div>
@@ -160,24 +152,20 @@ export default function FeedbackWidget({ page, pageId = '' }) {
 
           {/* Input */}
           <div className="px-4 py-3 border-t border-gray-100 flex-shrink-0">
-            {currentUser ? (
-              <div className="space-y-2">
-                <textarea
-                  value={text}
-                  onChange={e => setText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-                  placeholder="Leave feedback... (Enter to send)"
-                  rows={2}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none"
-                />
-                <button onClick={submit} disabled={saving || !text.trim()}
-                  className="w-full py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-gray-900 transition disabled:opacity-40">
-                  {saving ? 'Sending...' : 'Send feedback'}
-                </button>
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400 text-center">Sign in to leave feedback</p>
-            )}
+            <div className="space-y-2">
+              <textarea
+                value={text}
+                onChange={e => setText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+                placeholder="Leave feedback... (Enter to send)"
+                rows={2}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none"
+              />
+              <button onClick={submit} disabled={saving || !text.trim()}
+                className="w-full py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-gray-900 transition disabled:opacity-40">
+                {saving ? 'Sending...' : 'Send feedback'}
+              </button>
+            </div>
           </div>
         </div>
       )}

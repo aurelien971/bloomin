@@ -346,7 +346,7 @@ export default function ReleasePage() {
 
       </div>
 
-      <FeedbackWidget page="release" pageId={productId} />
+      <FeedbackWidget page="release" label="Release / BAU" pageId={productId} />
     </div>
   )
 }
