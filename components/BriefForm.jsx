@@ -172,17 +172,22 @@ function displayVal(v) {
 function AutoFillModal({ brief, onApply, onClose }) {
   const [text,     setText]     = useState('')
   const [file,     setFile]     = useState(null)
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState('')
-  const [result,   setResult]   = useState(null)  // parsed JSON from OpenAI
-  const [accepted, setAccepted] = useState({})     // which fields to apply
-  const [dragging, setDragging] = useState(false)
-  const dropRef = useRef(null)
-  const fileRef = useRef(null)
+  const [loading,    setLoading]    = useState(false)
+  const [error,      setError]      = useState('')
+  const [result,     setResult]     = useState(null)
+  const [accepted,   setAccepted]   = useState({})
+  const [dragging,   setDragging]   = useState(false)
+  const [mode,       setMode]       = useState('text')
+  const [recording,  setRecording]  = useState(false)
+  const [transcript, setTranscript] = useState('')
+  const dropRef   = useRef(null)
+  const fileRef   = useRef(null)
+  const mediaRef  = useRef(null)
+  const chunksRef = useRef([])
 
   const isDrink  = brief.productType === 'drink'
   const schema   = isDrink ? DRINK_SCHEMA : SYRUP_SCHEMA
-  const apiKey   = process.env.NEXT_PUBLIC_OPENAI_API_KEY || 'sk-YOUR-OPENAI-KEY'
+  const apiKey   = process.env.NEXT_PUBLIC_OPENAI_API_KEY || ''
 
   const readFile = (f) => {
     setFile(f)
@@ -195,6 +200,43 @@ function AutoFillModal({ brief, onApply, onClose }) {
     e.preventDefault(); setDragging(false)
     const f = e.dataTransfer.files?.[0]
     if (f) readFile(f)
+  }
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      mediaRef.current = mr
+      chunksRef.current = []
+      mr.ondataavailable = e => chunksRef.current.push(e.data)
+      mr.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        stream.getTracks().forEach(t => t.stop())
+        setLoading(true)
+        try {
+          const form = new FormData()
+          form.append('file', blob, 'recording.webm')
+          form.append('model', 'whisper-1')
+          const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}` },
+            body: form,
+          })
+          const data = await res.json()
+          const t = data.text || ''
+          setTranscript(t)
+          setText(t)
+        } catch (e) { setError('Transcription failed — check your API key') }
+        setLoading(false)
+      }
+      mr.start()
+      setRecording(true)
+    } catch (e) { setError('Microphone access denied') }
+  }
+
+  const stopRecording = () => {
+    mediaRef.current?.stop()
+    setRecording(false)
   }
 
   const callOpenAI = async () => {
@@ -291,56 +333,90 @@ Return ONLY the JSON object, no explanation, no markdown code blocks.`
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-lg">✨</div>
             <div>
-              <h2 className="text-lg font-bold text-gray-900">Auto-fill from transcript</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Paste an email thread, meeting notes, or drop a text file</p>
+              <h2 className="text-lg font-bold text-gray-900">Auto-fill brief</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Paste an email, drop a file, or speak — AI extracts the fields</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-black transition text-2xl leading-none">×</button>
         </div>
 
         {!result ? (
-          /* ── Input stage ── */
-          <div className="flex-1 overflow-y-auto px-8 py-6 space-y-5">
-            {/* Drop zone */}
-            <div
-              ref={dropRef}
-              onDragOver={e => { e.preventDefault(); setDragging(true) }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={onDrop}
-              onClick={() => fileRef.current?.click()}
-              className={`relative border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${dragging ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'}`}>
-              <input ref={fileRef} type="file" accept=".txt,.md,.csv,.eml,.text" className="hidden"
-                onChange={e => e.target.files?.[0] && readFile(e.target.files[0])} />
-              <span className="text-3xl">{file ? '📄' : '📎'}</span>
-              {file ? (
-                <div className="text-center">
-                  <p className="text-sm font-semibold text-gray-800">{file.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{Math.round(file.size / 1024)}KB — click to replace</p>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <p className="text-sm font-semibold text-gray-600">Drop a .txt or .md file here</p>
-                  <p className="text-xs text-gray-400 mt-0.5">or click to browse</p>
-                </div>
-              )}
+          <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
+
+            {/* Mode tabs */}
+            <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+              {[['text','📝 Notes / paste'],['voice','🎙️ Voice']].map(([m, label]) => (
+                <button key={m} onClick={() => setMode(m)}
+                  className={`flex-1 py-2 text-xs font-semibold transition ${mode === m ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  {label}
+                </button>
+              ))}
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-gray-100" />
-              <span className="text-xs text-gray-400 font-medium">or paste text</span>
-              <div className="flex-1 h-px bg-gray-100" />
-            </div>
+            {mode === 'text' && (<>
+              {/* Drop zone */}
+              <div
+                ref={dropRef}
+                onDragOver={e => { e.preventDefault(); setDragging(true) }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={onDrop}
+                onClick={() => fileRef.current?.click()}
+                className={`relative border-2 border-dashed rounded-2xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${dragging ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'}`}>
+                <input ref={fileRef} type="file" accept=".txt,.md,.csv,.eml,.text" className="hidden"
+                  onChange={e => e.target.files?.[0] && readFile(e.target.files[0])} />
+                <span className="text-3xl">{file ? '📄' : '📎'}</span>
+                {file ? (
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-gray-800">{file.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{Math.round(file.size / 1024)}KB — click to replace</p>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-gray-600">Drop a .txt or .md file here</p>
+                    <p className="text-xs text-gray-400 mt-0.5">or click to browse</p>
+                  </div>
+                )}
+              </div>
 
-            {/* Text paste */}
-            <textarea
-              value={text}
-              onChange={e => { setText(e.target.value); setFile(null) }}
-              placeholder="Paste email thread, Slack messages, meeting notes, or any text that contains product brief info...
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-gray-100" />
+                <span className="text-xs text-gray-400 font-medium">or paste text</span>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
 
-e.g. 'Hi, we're looking for a vanilla syrup for lattes. Should be lightly sweet, vegan friendly, and work well with oat milk. We need samples by end of March and are hoping to launch in June...'"
-              rows={8}
-              className="w-full px-4 py-3 rounded-2xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none text-gray-700 placeholder-gray-300"
-            />
+              <textarea
+                value={text}
+                onChange={e => { setText(e.target.value); setFile(null) }}
+                placeholder={`Paste email thread, Slack messages, meeting notes...\n\ne.g. 'Hi, we're looking for a vanilla syrup for lattes. Should be lightly sweet, vegan friendly, and work well with oat milk. Samples by end of March, launch in June...'`}
+                rows={7}
+                className="w-full px-4 py-3 rounded-2xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none text-gray-700 placeholder-gray-300"
+              />
+            </>)}
+
+            {mode === 'voice' && (
+              <div className="space-y-4">
+                <div className={`rounded-2xl border-2 p-8 flex flex-col items-center gap-4 transition-all ${recording ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <button
+                    onClick={recording ? stopRecording : startRecording}
+                    disabled={loading}
+                    className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl transition-all shadow-lg ${recording ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-black text-white hover:bg-gray-800'}`}>
+                    {recording ? '⏹' : '🎙️'}
+                  </button>
+                  <p className="text-sm font-semibold text-gray-700">
+                    {recording ? 'Recording… click to stop' : 'Click to start recording'}
+                  </p>
+                  <p className="text-xs text-gray-400 text-center max-w-xs">
+                    Describe the product — flavour, target market, dietary requirements, packaging preferences, dates. We'll transcribe and extract the fields automatically.
+                  </p>
+                </div>
+                {transcript && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5">Transcript</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">{transcript}</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
@@ -348,12 +424,12 @@ e.g. 'Hi, we're looking for a vanilla syrup for lattes. Should be lightly sweet,
               </div>
             )}
 
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-400">Uses GPT-4o · ~{Math.round((text.length / 4))} tokens</p>
+            <div className="flex items-center justify-between pt-1">
+              <p className="text-xs text-gray-400">GPT-4o · {mode === 'voice' ? 'Whisper transcription' : `~${Math.round((text.length / 4))} tokens`}</p>
               <button onClick={callOpenAI} disabled={loading || !text.trim()}
                 className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:opacity-90 transition disabled:opacity-40 shadow-md shadow-violet-200">
                 {loading ? (
-                  <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Extracting...</>
+                  <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> {recording ? 'Transcribing…' : 'Extracting…'}</>
                 ) : (
                   <><span>✨</span> Extract & fill brief</>
                 )}
