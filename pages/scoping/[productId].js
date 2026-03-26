@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import {
@@ -13,6 +12,7 @@ const EMPTY_ROW = () => ({
   name: '', quantity: '', unit: 'g',
   supplierId: '', supplierName: '', notes: '',
   riskFactor: '',
+  costPerUnit: '', costCurrency: '£',
   ordered: false, orderedAt: '', orderCode: '',
   expectedDelivery: '', delivered: false, deliveredAt: '',
 })
@@ -106,8 +106,23 @@ export default function ScopingPage() {
   }
 
   // Auto-set expectedDelivery → marks ingredient as ordered implicitly
-  const setDeliveryDate = (i, date) => {
-    setIngredients(r => r.map((row, idx) => idx === i ? { ...row, expectedDelivery: date } : row))
+  const setDeliveryDate = async (i, date) => {
+    const updated = ingredients.map((row, idx) => idx === i ? { ...row, expectedDelivery: date } : row)
+    setIngredients(updated)
+    // Sync the latest expected delivery date to product stages so calendar + dashboard see it
+    if (productId) {
+      const latest = updated
+        .filter(r => r.expectedDelivery)
+        .sort((a, b) => new Date(b.expectedDelivery) - new Date(a.expectedDelivery))[0]?.expectedDelivery
+      if (latest) {
+        try {
+          await updateDoc(doc(db, 'products', productId), {
+            'stages.scoping.expectedDelivery': latest,
+            'stages.scoping.updatedAt': new Date().toISOString(),
+          })
+        } catch (e) { console.error(e) }
+      }
+    }
   }
 
   const toggleOrdered = (i) => {
@@ -290,21 +305,33 @@ export default function ScopingPage() {
         {/* Brief summary */}
         {brief?.submitted && (
           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
               <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Brief summary</h2>
             </div>
             <div className="px-5 py-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {[
-                { label: 'Primary flavour', val: fd.primaryFlavour },
-                { label: 'Secondary notes', val: fd.secondaryFlavour },
-                { label: 'Used in',         val: Array.isArray(fd.uses) ? fd.uses.join(', ') : fd.uses },
-                { label: 'Dietary',         val: Array.isArray(fd.dietary) ? fd.dietary.join(', ') : fd.dietary },
-                { label: 'Sweetness',       val: fd.sweetness },
-                { label: 'Milk types',      val: Array.isArray(fd.milkTypes) ? fd.milkTypes.join(', ') : fd.milkTypes },
-                { label: 'Allergens',       val: fd.allergens },
-                { label: 'Restrictions',    val: fd.ingredientRestrictions },
-                { label: 'Preservatives',   val: fd.preservatives },
-              ].filter(f => f.val).map(f => (
+              {(product?.productType === 'drink' ? [
+                { label: 'Flavour direction',  val: fd.flavourDirection },
+                { label: 'Protein target',     val: fd.proteinTarget ? `${fd.proteinTarget}g` : null },
+                { label: 'Protein blend',      val: fd.proteinBlend },
+                { label: 'Electrolytes',       val: fd.electrolytes },
+                { label: 'Sweetener',          val: fd.sweetener },
+                { label: 'Carbonation',        val: fd.carbonation },
+                { label: 'Format',             val: fd.format },
+                { label: 'Markets',            val: Array.isArray(fd.markets) ? fd.markets.join(', ') : fd.markets },
+                { label: 'Functional claims',  val: Array.isArray(fd.functionalClaims) ? fd.functionalClaims.join(', ') : fd.functionalClaims },
+                { label: 'Restrictions',       val: fd.formulaRestrictions },
+                { label: 'Allergen notes',     val: fd.allergenNotes },
+              ] : [
+                { label: 'Primary flavour',    val: fd.primaryFlavour },
+                { label: 'Secondary notes',    val: fd.secondaryFlavour },
+                { label: 'Used in',            val: Array.isArray(fd.uses) ? fd.uses.join(', ') : fd.uses },
+                { label: 'Dietary',            val: Array.isArray(fd.dietary) ? fd.dietary.join(', ') : fd.dietary },
+                { label: 'Sweetness',          val: fd.sweetness },
+                { label: 'Milk types',         val: Array.isArray(fd.milkTypes) ? fd.milkTypes.join(', ') : fd.milkTypes },
+                { label: 'Allergens',          val: fd.allergens },
+                { label: 'Restrictions',       val: fd.ingredientRestrictions },
+                { label: 'Preservatives',      val: fd.preservatives },
+              ]).filter(f => f.val).map(f => (
                 <div key={f.label}>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">{f.label}</p>
                   <p className="text-sm text-gray-900">{f.val}</p>
@@ -313,6 +340,95 @@ export default function ScopingPage() {
             </div>
           </div>
         )}
+
+        {/* ── COG Calculator ─────────────────────────────────────────────────── */}
+        {(() => {
+          // Parse bottle volume from brief
+          const bottleVolumeMl = (() => {
+            if (product?.productType === 'drink') {
+              const fmt = fd.format || ''
+              const m = fmt.match(/(\d+)\s*ml/i)
+              return m ? parseInt(m[1]) : 330
+            }
+            if (fd.standardBottleOk === 'No — I need something different' && fd.bottleAlternative) {
+              const m = fd.bottleAlternative.match(/(\d+)\s*ml/i)
+              if (m) return parseInt(m[1])
+            }
+            return 750 // default standard bottle
+          })()
+
+          // Calculate total ingredient cost for the batch
+          const costedRows = ingredients.filter(r => r.name?.trim() && r.costPerUnit && r.quantity)
+          const totalBatchCost = costedRows.reduce((sum, r) => {
+            const cost = parseFloat(r.costPerUnit) || 0
+            const qty  = parseFloat(r.quantity)    || 0
+            return sum + (cost * qty)
+          }, 0)
+
+          const hasCosts = costedRows.length > 0
+          const batchVolumeMl = ingredients.reduce((sum, r) => {
+            const qty = parseFloat(r.quantity) || 0
+            if (r.unit === 'ml' || r.unit === 'L') return sum + (r.unit === 'L' ? qty * 1000 : qty)
+            return sum + qty // assume g ≈ ml for syrup
+          }, 0)
+
+          const bottlesPerBatch = batchVolumeMl > 0 && bottleVolumeMl > 0
+            ? Math.floor(batchVolumeMl / bottleVolumeMl)
+            : null
+
+          const cogPerBottle = bottlesPerBatch && bottlesPerBatch > 0 && totalBatchCost > 0
+            ? totalBatchCost / bottlesPerBatch
+            : null
+
+          const targetCostMax = parseFloat(fd.targetCostMax || 0)
+          const onTarget = cogPerBottle && targetCostMax ? cogPerBottle <= targetCostMax : null
+
+          if (!hasCosts && phase === 'draft') return null // don't show until costs entered
+
+          return (
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Cost of Goods</h2>
+                  <span className="text-xs text-gray-400">· {bottleVolumeMl}ml bottle</span>
+                </div>
+                {onTarget !== null && (
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${onTarget ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                    {onTarget ? '✓ On target' : '⚠ Over target'}
+                  </span>
+                )}
+              </div>
+              <div className="px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Costed ingredients</p>
+                  <p className="text-xl font-bold text-gray-900">{costedRows.length}<span className="text-sm text-gray-400 font-normal"> / {ingredients.filter(r => r.name?.trim()).length}</span></p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Total batch cost</p>
+                  <p className="text-xl font-bold text-gray-900">{hasCosts ? `£${totalBatchCost.toFixed(2)}` : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Bottles per batch</p>
+                  <p className="text-xl font-bold text-gray-900">{bottlesPerBatch ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Est. COG / bottle</p>
+                  <p className={`text-xl font-bold ${onTarget === false ? 'text-red-600' : onTarget ? 'text-green-600' : 'text-gray-900'}`}>
+                    {cogPerBottle ? `£${cogPerBottle.toFixed(2)}` : '—'}
+                  </p>
+                  {targetCostMax > 0 && (
+                    <p className="text-xs text-gray-400 mt-0.5">Target: £{targetCostMax.toFixed(2)}</p>
+                  )}
+                </div>
+              </div>
+              {costedRows.length < ingredients.filter(r => r.name?.trim()).length && (
+                <div className="px-5 pb-3">
+                  <p className="text-xs text-amber-600">⚠ {ingredients.filter(r => r.name?.trim()).length - costedRows.length} ingredient{ingredients.filter(r => r.name?.trim()).length - costedRows.length !== 1 ? 's' : ''} missing cost — COG is partial</p>
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* ── PHASE 1: List ingredients ─────────────────────────────────────── */}
         {phase === 'draft' && (
@@ -514,8 +630,6 @@ export default function ScopingPage() {
           </>
         )}
       </div>
-
-      <FeedbackWidget page="scoping" label="Ingredients & Sourcing" pageId={productId} />
     </div>
   )
 }
@@ -577,6 +691,18 @@ function IngredientCard({ row, index, suppliers, readOnly, onChange, onSupplierC
             >
               {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
+            {/* Cost per unit */}
+            <div className="flex items-center gap-0 rounded-xl border border-green-200 bg-green-50/50 overflow-hidden flex-shrink-0">
+              <span className="px-2 text-xs font-semibold text-green-600 border-r border-green-200">£</span>
+              <input
+                disabled={readOnly} value={row.costPerUnit || ''}
+                onChange={e => onChange('costPerUnit', e.target.value)}
+                placeholder="cost / unit"
+                type="number" min="0" step="0.01"
+                title="Cost per kg / L / unit"
+                className="w-24 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-transparent disabled:bg-gray-50 disabled:text-gray-400"
+              />
+            </div>
             <input
               disabled={readOnly} value={row.notes}
               onChange={e => onChange('notes', e.target.value)}

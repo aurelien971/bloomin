@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { db, storage } from '../../lib/firebase'
@@ -246,6 +245,10 @@ export default function LabSheet() {
     setUploading(u => ({ ...u, [field]: false }))
   }
 
+  const [autoFill,   setAutoFill]   = useState(false)
+  const [renamingId, setRenamingId] = useState(null)
+  const [renameVal,  setRenameVal]  = useState('')
+
   // ── Section completion checks ─────────────────────────────────────────────
   const sectionDone = {
     recipe:      data.ingredients.some(r => r.ingredient.trim()) && data.steps.some(s => s.trim()),
@@ -314,17 +317,58 @@ export default function LabSheet() {
               </button>
               <div className="space-y-1 pt-1">
                 {versions.map(v => (
-                  <button key={v.id} onClick={() => loadVersion(v)}
-                    className={`w-full text-left px-3 py-2.5 rounded-xl transition ${activeId === v.id ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-100'}`}>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-bold text-gray-400">V{v.versionNumber}</span>
-                      {v.sampleUid && <span className="text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">#{v.sampleUid}</span>}
-                      {v.status === 'signed-off' && <span className="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-full">✓</span>}
-                    </div>
-                    <p className={`text-sm font-semibold truncate ${activeId === v.id ? 'text-white' : 'text-gray-900'}`}>{v.versionName}</p>
-                    {v.versionNote && <p className={`text-xs truncate mt-0.5 ${activeId === v.id ? 'text-white/50' : 'text-gray-400'}`}>{v.versionNote}</p>}
-                    {v.versionCook && <p className={`text-xs mt-0.5 ${activeId === v.id ? 'text-white/40' : 'text-gray-300'}`}>by {v.versionCook}</p>}
-                  </button>
+                  <div key={v.id} className="relative group">
+                    <button onClick={() => loadVersion(v)}
+                      className={`w-full text-left px-3 py-2.5 rounded-xl transition ${activeId === v.id ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-100'}`}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-xs font-bold text-gray-400">V{v.versionNumber}</span>
+                        <div className="flex items-center gap-1">
+                          {v.sampleUid && <span className="text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">#{v.sampleUid}</span>}
+                          {v.status === 'signed-off' && <span className="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-full">✓</span>}
+                        </div>
+                      </div>
+                      {renamingId === v.id ? (
+                        <input
+                          autoFocus
+                          value={renameVal}
+                          onChange={e => setRenameVal(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={async e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              if (renameVal.trim()) {
+                                await updateDoc(doc(db, 'labSheets', v.id), { versionName: renameVal.trim() })
+                                setVersions(vs => vs.map(x => x.id === v.id ? { ...x, versionName: renameVal.trim() } : x))
+                              }
+                              setRenamingId(null)
+                            }
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                          onBlur={async () => {
+                            if (renameVal.trim()) {
+                              await updateDoc(doc(db, 'labSheets', v.id), { versionName: renameVal.trim() })
+                              setVersions(vs => vs.map(x => x.id === v.id ? { ...x, versionName: renameVal.trim() } : x))
+                            }
+                            setRenamingId(null)
+                          }}
+                          className="w-full bg-white text-gray-900 text-sm font-semibold px-2 py-1 rounded-lg border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-400"
+                        />
+                      ) : (
+                        <p className={`text-sm font-semibold truncate ${activeId === v.id ? 'text-white' : 'text-gray-900'}`}>{v.versionName}</p>
+                      )}
+                      {v.versionNote && <p className={`text-xs truncate mt-0.5 ${activeId === v.id ? 'text-white/50' : 'text-gray-400'}`}>{v.versionNote}</p>}
+                      {v.versionCook && <p className={`text-xs mt-0.5 ${activeId === v.id ? 'text-white/40' : 'text-gray-300'}`}>by {v.versionCook}</p>}
+                    </button>
+                    {/* 3-dot rename button */}
+                    {!readOnly && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setRenamingId(v.id); setRenameVal(v.versionName) }}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition w-6 h-6 flex items-center justify-center rounded-lg hover:bg-gray-200 text-gray-400 text-xs"
+                        title="Rename version">
+                        ···
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </>
@@ -334,10 +378,30 @@ export default function LabSheet() {
         {/* ── Main content ────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-4">
 
+          {/* Auto-fill banner */}
+          {!readOnly && (
+            <div className="bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-base flex-shrink-0">✨</div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-gray-900">Auto-fill from notes, PDF, Excel or voice</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Drop a cook report, paste transcript, or speak your observations — AI extracts the data</p>
+                </div>
+              </div>
+              <button onClick={() => setAutoFill(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-semibold rounded-xl hover:opacity-90 transition shadow-sm shadow-violet-200 flex-shrink-0">
+                ✨ Auto-fill lab sheet
+              </button>
+            </div>
+          )}
+
           {/* Product title card */}
           <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4">
             <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold">{brief.clientName}</p>
-            <h1 className="text-lg font-bold text-gray-900 mt-0.5">{brief.productName} — Lab Development Sheet</h1>
+            <div className="flex items-center gap-2 mt-0.5">
+              <h1 className="text-lg font-bold text-gray-900">{brief.productName} — Lab Development Sheet</h1>
+              {nextUid && <span className="text-sm font-mono font-bold text-gray-400">#{nextUid.split('-')[0]}</span>}
+            </div>
             {versions.length === 0 && (
               <p className="text-sm text-amber-600 mt-1">No recipe yet — click "+ Create recipe" to get started.</p>
             )}
@@ -832,7 +896,43 @@ export default function LabSheet() {
                         <>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Field label="Sample location" value={data.sampleLocation} onChange={v => set('sampleLocation', v)} placeholder="e.g. Lab fridge shelf 2" disabled={readOnly} />
-                            <Field label="Sample label" value={data.sampleLabel} onChange={v => set('sampleLabel', v)} placeholder="Product · V1 · date" disabled={readOnly} />
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Sample label</label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  value={data.sampleLabel || (() => {
+                                    const activeVersion = versions.find(v => v.id === activeId)
+                                    const code = nextUid?.split('-')[0] || ''
+                                    const vNum = activeVersion?.versionNumber || ''
+                                    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                                    return code && vNum ? `#${code}-V${vNum} · ${today}` : ''
+                                  })()}
+                                  onChange={v => set('sampleLabel', v.target ? v.target.value : v)}
+                                  disabled={readOnly}
+                                  className="flex-1 px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50 disabled:text-gray-400"
+                                  placeholder={(() => {
+                                    const activeVersion = versions.find(v => v.id === activeId)
+                                    const code = nextUid?.split('-')[0] || ''
+                                    const vNum = activeVersion?.versionNumber || ''
+                                    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                                    return code && vNum ? `#${code}-V${vNum} · ${today}` : 'e.g. #KRTM-V1 · 26 Mar 2026'
+                                  })()}
+                                />
+                                {!readOnly && !data.sampleLabel && (
+                                  <button type="button"
+                                    onClick={() => {
+                                      const activeVersion = versions.find(v => v.id === activeId)
+                                      const code = nextUid?.split('-')[0] || ''
+                                      const vNum = activeVersion?.versionNumber || ''
+                                      const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                                      if (code && vNum) set('sampleLabel', `#${code}-V${vNum} · ${today}`)
+                                    }}
+                                    className="text-xs px-2.5 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:border-black hover:text-black transition whitespace-nowrap flex-shrink-0">
+                                    Use default
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <PhotoUpload label="📸 Photo of retain sample" hint="Upload a photo of the labelled bottle."
@@ -850,34 +950,54 @@ export default function LabSheet() {
                 </div>
               </div>
 
-              {/* ── Sticky sign-off CTA — always visible, disabled until complete ── */}
-              {!readOnly && (
-                <div className={`rounded-2xl border px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${allDone ? 'bg-black border-black' : 'bg-white border-gray-200'}`}>
-                  <div>
-                    <p className={`text-sm font-semibold ${allDone ? 'text-white' : 'text-gray-400'}`}>
-                      {allDone ? '✓ All sections complete — ready to mark for client sign-off' : 'Complete all sections to mark ready for client sign-off'}
-                    </p>
-                    {!allDone && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {[
-                          !sectionDone.recipe && 'Recipe & Process',
-                          !sectionDone.specs && 'Specs',
-                          !sectionDone.application && 'Tasting & Application',
-                          !sectionDone.production && 'Production',
-                          !sampleDone && 'Lab sample',
-                        ].filter(Boolean).join(' · ')} still needed
+              {/* ── Bottom CTA — Next section or sign-off on last section ── */}
+              {!readOnly && (() => {
+                const sectionKeys = SECTIONS.map(s => s.key)
+                const currentIdx  = sectionKeys.indexOf(activeSection)
+                const isLastSection = currentIdx === sectionKeys.length - 1
+                const nextSection = !isLastSection ? SECTIONS[currentIdx + 1] : null
+                const currentDone = sectionDone[activeSection]
+
+                if (!isLastSection) {
+                  return (
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => setActiveSection(nextSection.key)}
+                        className="flex items-center gap-2 px-6 py-2.5 bg-black text-white text-sm font-semibold rounded-xl hover:bg-gray-900 transition">
+                        {nextSection.icon} {nextSection.label} →
+                      </button>
+                    </div>
+                  )
+                }
+
+                // Last section — show sign-off CTA
+                return (
+                  <div className={`rounded-2xl border px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${allDone ? 'bg-black border-black' : 'bg-white border-gray-200'}`}>
+                    <div>
+                      <p className={`text-sm font-semibold ${allDone ? 'text-white' : 'text-gray-400'}`}>
+                        {allDone ? '✓ All sections complete — ready to mark for client sign-off' : 'Complete all sections to mark ready for client sign-off'}
                       </p>
-                    )}
+                      {!allDone && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {[
+                            !sectionDone.recipe && 'Recipe & Process',
+                            !sectionDone.specs && 'Specs',
+                            !sectionDone.application && 'Tasting & Application',
+                            !sectionDone.production && 'Production',
+                            !sampleDone && 'Lab sample',
+                          ].filter(Boolean).join(' · ')} still needed
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => allDone && setSignOffModal(true)}
+                      disabled={!allDone}
+                      className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition flex-shrink-0 ${allDone ? 'bg-white text-black hover:bg-gray-100 cursor-pointer' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}>
+                      Mark ready for client sign-off →
+                    </button>
                   </div>
-                  <button
-                    onClick={() => allDone && setSignOffModal(true)}
-                    disabled={!allDone}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition flex-shrink-0 ${allDone ? 'bg-white text-black hover:bg-gray-100 cursor-pointer' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}
-                  >
-                    Mark ready for client sign-off →
-                  </button>
-                </div>
-              )}
+                )
+              })()}
             </>
           )}
 
@@ -973,12 +1093,40 @@ export default function LabSheet() {
           </div>
         </div>
       )}
-      <FeedbackWidget page="lab" pageId={briefId} label={brief ? `Lab Sheet — ${brief.productName}` : 'Lab Sheet'} />
+      {autoFill && (
+        <LabAutoFillModal
+          brief={brief}
+          onApply={async (extracted) => {
+            const merged = deepMerge(data, extracted)
+            setData(merged)
+            setAutoFill(false)
+            if (activeId) {
+              try { await updateDoc(doc(db, 'labSheets', activeId), { data: merged }) }
+              catch (e) { console.error(e) }
+            }
+          }}
+          onClose={() => setAutoFill(false)}
+        />
+      )}
     </div>
   )
 }
 
-// ─── Ingredient name combobox ─────────────────────────────────────────────────
+// ── Deep merge helper ─────────────────────────────────────────────────────────
+function deepMerge(base, override) {
+  const result = { ...base }
+  for (const key of Object.keys(override)) {
+    if (override[key] === null || override[key] === undefined) continue
+    if (Array.isArray(override[key]) && override[key].length > 0) {
+      result[key] = override[key]
+    } else if (typeof override[key] === 'object' && !Array.isArray(override[key])) {
+      result[key] = deepMerge(base[key] || {}, override[key])
+    } else if (override[key] !== '') {
+      result[key] = override[key]
+    }
+  }
+  return result
+}
 function IngredientCombobox({ value, disabled, suggestions, usedNames, onChange, onSelect }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState(value || '')
@@ -1050,3 +1198,421 @@ function PhotoUpload({ label, hint, url, uploading, onUpload, disabled }) {
     </div>
   )
 }
+
+// ─── Lab AutoFill Modal ───────────────────────────────────────────────────────
+const LAB_SCHEMA = {
+  requiredLitres: 'number — batch size in litres',
+  requiredLitresUnit: 'string — L or mL',
+  ingredients: 'array of { ingredient: string, supplier: string, unit: string (KG/G/L/ML/PCS/OZ), qty: string }',
+  heatingRequired: 'string — Yes or No',
+  maxTemp: 'string — max temperature in °C e.g. "85"',
+  steps: 'array of strings — each cooking step in order',
+  criticalAdditionNotes: 'string — when to add flavours, acids, colours',
+  coolingPoint: 'string — cooling temp before fill e.g. "40°C"',
+  processNotes: 'string — other critical process notes',
+  analytical: 'object with brix and ph each having { min: string, target: string, max: string, conditions: string }',
+  fillWeightPerVolume: 'string — e.g. "755g per 750ml bottle"',
+  density: 'string — g/mL e.g. "1.007"',
+  colourNeat: 'string — colour of the syrup in the bottle',
+  colourInDrink: 'string — colour in the finished drink',
+  appearanceNotes: 'string',
+  primaryFlavour: 'string',
+  secondaryFlavour: 'string',
+  aroma: 'string',
+  texture: 'string',
+  keyTopNotes: 'string',
+  aftertaste: 'string',
+  sweetness: 'one of: Dry | Lightly Sweet | Balanced | Sweet | Very Sweet',
+  acidity: 'one of: None | Low | Medium | High',
+  offNotes: 'one of: Yes | No',
+  offNotesDetail: 'string — if off notes present',
+  balanceNotes: 'string — overall tasting notes',
+  criticalAttributes: 'array of strings — attributes that must not change between batches',
+  doseRate: 'string — e.g. "15ml per 250ml drink"',
+  applicationIssues: 'string',
+  hotOrColdProcess: 'one of: Hot fill | Cold mix',
+  estimatedCookTime: 'string — e.g. "45 mins"',
+  productionLimitations: 'string',
+  retainSampleKept: 'one of: Yes | No',
+  sampleLocation: 'string',
+  sampleLabel: 'string',
+}
+
+const FIELD_SECTION = {
+  requiredLitres: 'Recipe', requiredLitresUnit: 'Recipe', ingredients: 'Recipe',
+  heatingRequired: 'Recipe', maxTemp: 'Recipe', steps: 'Recipe',
+  criticalAdditionNotes: 'Recipe', coolingPoint: 'Recipe', processNotes: 'Recipe',
+  analytical: 'Specs', fillWeightPerVolume: 'Specs', density: 'Specs',
+  colourNeat: 'Specs', colourInDrink: 'Specs', appearanceNotes: 'Specs',
+  primaryFlavour: 'Specs', secondaryFlavour: 'Specs', aroma: 'Specs', texture: 'Specs',
+  keyTopNotes: 'Specs', aftertaste: 'Specs', sweetness: 'Specs', acidity: 'Specs',
+  offNotes: 'Specs', offNotesDetail: 'Specs', balanceNotes: 'Specs',
+  criticalAttributes: 'Application', doseRate: 'Application', applicationIssues: 'Application',
+  hotOrColdProcess: 'Production', estimatedCookTime: 'Production', productionLimitations: 'Production',
+  retainSampleKept: 'Production', sampleLocation: 'Production', sampleLabel: 'Production',
+}
+
+const SECTION_COLORS = {
+  Recipe: 'bg-blue-50 text-blue-600', Specs: 'bg-purple-50 text-purple-600',
+  Application: 'bg-amber-50 text-amber-700', Production: 'bg-green-50 text-green-700',
+}
+
+const FIELD_LABELS = {
+  requiredLitres: 'Batch size', ingredients: 'Ingredients', heatingRequired: 'Heating required',
+  maxTemp: 'Max temp', steps: 'Cooking steps', criticalAdditionNotes: 'Critical addition notes',
+  coolingPoint: 'Cooling point', processNotes: 'Process notes', analytical: 'Analytical (Brix/pH)',
+  fillWeightPerVolume: 'Fill weight per volume', density: 'Density',
+  colourNeat: 'Syrup colour', colourInDrink: 'End drink colour', appearanceNotes: 'Appearance notes',
+  primaryFlavour: 'Primary flavour', secondaryFlavour: 'Secondary flavour', aroma: 'Aroma',
+  texture: 'Texture', keyTopNotes: 'Key top notes', aftertaste: 'Aftertaste',
+  sweetness: 'Sweetness', acidity: 'Acidity', offNotes: 'Off notes', offNotesDetail: 'Off notes detail',
+  balanceNotes: 'Balance notes', criticalAttributes: 'Critical attributes',
+  doseRate: 'Dose rate', applicationIssues: 'Application issues',
+  hotOrColdProcess: 'Hot/cold process', estimatedCookTime: 'Cook time',
+  productionLimitations: 'Production limitations', retainSampleKept: 'Retain sample kept',
+  sampleLocation: 'Sample location', sampleLabel: 'Sample label',
+}
+
+function displayVal(v) {
+  if (Array.isArray(v)) {
+    if (v.length === 0) return '(empty)'
+    if (typeof v[0] === 'object') return `${v.length} item(s)`
+    return v.slice(0, 3).join(' · ') + (v.length > 3 ? ` +${v.length - 3} more` : '')
+  }
+  if (typeof v === 'object') return JSON.stringify(v).slice(0, 80)
+  return String(v)
+}
+
+function LabAutoFillModal({ brief, onApply, onClose }) {
+  const [mode,     setMode]     = useState('text')    // text | voice
+  const [text,     setText]     = useState('')
+  const [file,     setFile]     = useState(null)
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [result,   setResult]   = useState(null)
+  const [accepted, setAccepted] = useState({})
+  const [dragging, setDragging] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [transcript, setTranscript] = useState('')
+  const dropRef    = useRef(null)
+  const fileRef    = useRef(null)
+  const mediaRef   = useRef(null)
+  const chunksRef  = useRef([])
+
+  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY || ''
+
+  // ── File reading ───────────────────────────────────────────────────────────
+  const readFile = async (f) => {
+    setFile(f)
+    const ext = f.name.split('.').pop().toLowerCase()
+    if (['txt','md','csv'].includes(ext)) {
+      const reader = new FileReader()
+      reader.onload = e => setText(e.target.result)
+      reader.readAsText(f)
+    } else if (ext === 'pdf') {
+      // Send as base64 to OpenAI vision
+      const reader = new FileReader()
+      reader.onload = e => {
+        const b64 = e.target.result.split(',')[1]
+        setText(`__PDF_BASE64__${b64}__FILENAME__${f.name}`)
+      }
+      reader.readAsDataURL(f)
+    } else if (['xlsx','xls'].includes(ext)) {
+      // Read Excel as binary, send as text note
+      setText(`[Excel file: ${f.name}] — paste the relevant data as text for best results, or I'll do my best to extract from the filename context.`)
+    } else {
+      const reader = new FileReader()
+      reader.onload = e => setText(e.target.result)
+      reader.readAsText(f)
+    }
+  }
+
+  const onDrop = (e) => {
+    e.preventDefault(); setDragging(false)
+    const f = e.dataTransfer.files?.[0]
+    if (f) readFile(f)
+  }
+
+  // ── Voice recording via Web Speech API ────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      mediaRef.current = mr
+      chunksRef.current = []
+      mr.ondataavailable = e => chunksRef.current.push(e.data)
+      mr.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        stream.getTracks().forEach(t => t.stop())
+        // Transcribe via Whisper
+        setLoading(true)
+        try {
+          const form = new FormData()
+          form.append('file', blob, 'recording.webm')
+          form.append('model', 'whisper-1')
+          const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}` },
+            body: form,
+          })
+          const data = await res.json()
+          const t = data.text || ''
+          setTranscript(t)
+          setText(t)
+        } catch (e) { setError('Transcription failed — check your API key') }
+        setLoading(false)
+      }
+      mr.start()
+      setRecording(true)
+    } catch (e) { setError('Microphone access denied') }
+  }
+
+  const stopRecording = () => {
+    mediaRef.current?.stop()
+    setRecording(false)
+  }
+
+  // ── OpenAI extraction ──────────────────────────────────────────────────────
+  const extract = async () => {
+    const input = text.trim()
+    if (!input) { setError('Add some input first.'); return }
+    setLoading(true); setError(''); setResult(null)
+
+    const isPdf = input.startsWith('__PDF_BASE64__')
+
+    const systemPrompt = `You are a lab development data extraction assistant for Bloomin, a functional food & drink company.
+Extract lab sheet data from the provided input (cook notes, lab report, Excel export, voice transcript, or any R&D text).
+Return ONLY a valid JSON object matching the schema. Only include fields where you found clear information.
+Do not invent data. Omit fields you cannot determine.
+
+Product: ${brief?.productName || 'unknown'} for ${brief?.clientName || 'unknown'}
+
+JSON schema:
+${JSON.stringify(LAB_SCHEMA, null, 2)}`
+
+    try {
+      let messages
+      if (isPdf) {
+        const b64 = input.replace('__PDF_BASE64__', '').split('__FILENAME__')[0]
+        messages = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: [
+            { type: 'text', text: 'Extract lab sheet data from this PDF:' },
+            { type: 'image_url', image_url: { url: `data:application/pdf;base64,${b64}` } },
+          ]},
+        ]
+      } else {
+        messages = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Extract lab data from this input:\n\n---\n${input.slice(0, 14000)}\n---\n\nReturn ONLY the JSON object, no markdown, no explanation.` },
+        ]
+      }
+
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: 'gpt-4o', temperature: 0.1, max_tokens: 2000, messages }),
+      })
+
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || `OpenAI ${res.status}`) }
+      const resp = await res.json()
+      const raw  = resp.choices?.[0]?.message?.content?.trim() || ''
+      const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+      const parsed = JSON.parse(clean)
+
+      // Filter empty
+      const filtered = {}
+      const filterVal = (v) => {
+        if (v === null || v === undefined || v === '') return false
+        if (Array.isArray(v) && v.length === 0) return false
+        return true
+      }
+      Object.entries(parsed).forEach(([k, v]) => { if (filterVal(v)) filtered[k] = v })
+
+      if (Object.keys(filtered).length === 0) {
+        setError("Couldn't extract any fields — try more detailed notes or a different format.")
+        setLoading(false); return
+      }
+
+      const init = {}
+      Object.keys(filtered).forEach(k => { init[k] = true })
+      setAccepted(init)
+      setResult(filtered)
+    } catch (e) { setError(e.message || 'Something went wrong.'); console.error(e) }
+    setLoading(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="px-7 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-lg">✨</div>
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Auto-fill lab sheet</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Drop cook notes, Excel/PDF, or speak your observations</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-black transition text-2xl leading-none">×</button>
+        </div>
+
+        {!result ? (
+          <div className="flex-1 overflow-y-auto px-7 py-5 space-y-4">
+
+            {/* Input mode tabs */}
+            <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+              {[['text','📝 Notes / paste'],['voice','🎙️ Voice']].map(([m, label]) => (
+                <button key={m} onClick={() => setMode(m)}
+                  className={`flex-1 py-2 text-xs font-semibold transition ${mode === m ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {mode === 'text' && (
+              <>
+                {/* Drop zone */}
+                <div
+                  ref={dropRef}
+                  onDragOver={e => { e.preventDefault(); setDragging(true) }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={onDrop}
+                  onClick={() => fileRef.current?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${dragging ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'}`}>
+                  <input ref={fileRef} type="file" accept=".txt,.md,.csv,.pdf,.xlsx,.xls,.json" className="hidden"
+                    onChange={e => e.target.files?.[0] && readFile(e.target.files[0])} />
+                  <span className="text-3xl">{file ? '📄' : '📎'}</span>
+                  {file ? (
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-gray-800">{file.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Click to replace</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-gray-600">Drop file here</p>
+                      <p className="text-xs text-gray-400 mt-0.5">.txt · .pdf · .xlsx · .csv — or click to browse</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-gray-100" />
+                  <span className="text-xs text-gray-400 font-medium">or paste text</span>
+                  <div className="flex-1 h-px bg-gray-100" />
+                </div>
+
+                <textarea
+                  value={text} onChange={e => { setText(e.target.value); setFile(null) }}
+                  placeholder={`Paste cook notes, lab report, Excel data, or any observations...\n\ne.g. "Batch 5L. Added 500g vanilla extract, 200g citric acid, 50g natural flavour. Heated to 85°C for 20 mins. pH 3.8, Brix 42. Golden amber colour, strong vanilla nose, balanced sweetness..."`}
+                  rows={8}
+                  className="w-full px-4 py-3 rounded-2xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none text-gray-700 placeholder-gray-300"
+                />
+              </>
+            )}
+
+            {mode === 'voice' && (
+              <div className="space-y-4">
+                <div className={`rounded-2xl border-2 p-8 flex flex-col items-center gap-4 transition-all ${recording ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <button
+                    onClick={recording ? stopRecording : startRecording}
+                    disabled={loading}
+                    className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl transition-all shadow-lg ${recording ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-black text-white hover:bg-gray-800'}`}>
+                    {recording ? '⏹' : '🎙️'}
+                  </button>
+                  <p className="text-sm font-semibold text-gray-700">
+                    {recording ? 'Recording… click to stop' : 'Click to start recording'}
+                  </p>
+                  <p className="text-xs text-gray-400 text-center max-w-xs">
+                    Speak your lab observations — batch size, ingredients, steps, sensory notes, pH, Brix. We'll transcribe and extract automatically.
+                  </p>
+                </div>
+                {transcript && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5">Transcript</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">{transcript}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-1">
+              <p className="text-xs text-gray-400">GPT-4o · lab sheet extraction</p>
+              <button onClick={extract} disabled={loading || !text.trim()}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:opacity-90 transition disabled:opacity-40 shadow-md shadow-violet-200">
+                {loading ? (
+                  <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> {recording || mode === 'voice' ? 'Transcribing…' : 'Extracting…'}</>
+                ) : (
+                  <>✨ Extract & preview</>
+                )}
+              </button>
+            </div>
+          </div>
+
+        ) : (
+          <>
+            <div className="px-7 pt-5 pb-3 flex-shrink-0">
+              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                <span className="text-lg">🎉</span>
+                <div>
+                  <p className="text-sm font-semibold text-green-800">Found {Object.keys(result).length} fields — review and apply</p>
+                  <p className="text-xs text-green-600 mt-0.5">Uncheck any you don't want. Existing data will be merged.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-7 pb-4 space-y-2">
+              {Object.entries(result).map(([key, val]) => {
+                const section = FIELD_SECTION[key]
+                const sectionColor = section ? (SECTION_COLORS[section] || 'bg-gray-100 text-gray-500') : null
+                return (
+                  <label key={key} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${accepted[key] ? 'border-violet-200 bg-violet-50' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
+                    <input type="checkbox" checked={accepted[key] || false}
+                      onChange={e => setAccepted(a => ({ ...a, [key]: e.target.checked }))}
+                      className="mt-0.5 w-4 h-4 accent-violet-500 flex-shrink-0 cursor-pointer" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{FIELD_LABELS[key] || key}</p>
+                        {section && <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${sectionColor}`}>{section}</span>}
+                      </div>
+                      <p className="text-sm text-gray-900 break-words">{displayVal(val)}</p>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+
+            <div className="px-7 py-4 border-t border-gray-100 flex items-center justify-between gap-3 flex-shrink-0 bg-white">
+              <button onClick={() => { setResult(null); setError('') }}
+                className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+                ← Try again
+              </button>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-gray-400">{Object.values(accepted).filter(Boolean).length} of {Object.keys(result).length} selected</p>
+                <button
+                  onClick={() => {
+                    const toApply = {}
+                    Object.entries(result).forEach(([k, v]) => { if (accepted[k]) toApply[k] = v })
+                    onApply(toApply)
+                  }}
+                  disabled={!Object.values(accepted).some(Boolean)}
+                  className="px-6 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition disabled:opacity-40">
+                  Apply to lab sheet ✓
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Ingredient name combobox ─────────────────────────────────────────────────

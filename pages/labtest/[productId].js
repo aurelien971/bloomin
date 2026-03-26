@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { doc, getDoc, collection, query, where, getDocs, addDoc, updateDoc } from 'firebase/firestore'
@@ -152,6 +151,9 @@ export default function LabTestPage() {
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
 
+        {/* Eurofins submission guide */}
+        {form.lab === 'Eurofins' && <EurofinsGuide productName={product?.productName} />}
+
         {/* Submission details */}
         <Card title="Submission details">
           <div className="grid grid-cols-2 gap-5">
@@ -275,8 +277,202 @@ export default function LabTestPage() {
           </Card>
         )}
       </div>
+    </div>
+  )
+}
 
-      <FeedbackWidget page="labtesting" label="Lab Testing" pageId={productId} />
+function EurofinsGuide({ productName }) {
+  const [open,    setOpen]    = useState(true)
+  const [checked, setChecked] = useState({})
+  const [copied,  setCopied]  = useState(false)
+
+  const toggleCheck = (key) => setChecked(c => ({ ...c, [key]: !c[key] }))
+
+  const ADDRESS = 'Eurofins Food Testing UK Limited\n54 Business Park\nValiant Way\nWolverhampton\nWV9 5GB'
+
+  const copyAddress = () => {
+    navigator.clipboard.writeText(ADDRESS)
+    setCopied(true); setTimeout(() => setCopied(false), 2000)
+  }
+
+  const STEPS = [
+    {
+      key: 'login',
+      icon: '🔐',
+      title: 'Log in to the Eurofins portal',
+      tag: { text: 'Jesse has login', color: 'bg-red-50 text-red-600 border-red-200' },
+      body: 'Jesse has the Bloomin Foods account credentials. Ask him before you start.',
+    },
+    {
+      key: 'create',
+      icon: '📋',
+      title: 'Create a new order',
+      body: 'From the Eurofins dashboard, click "Create Order".',
+    },
+    {
+      key: 'account',
+      icon: '🏭',
+      title: 'Select Bloomin Foods',
+      body: 'In the first dropdown, select "Bloomin Foods" as the account.',
+    },
+    {
+      key: 'testtype',
+      icon: '🧪',
+      title: 'Select the test type',
+      body: 'Second dropdown — choose your test type: Micro, Shelf Life Extension, or both.',
+    },
+    {
+      key: 'samples',
+      icon: '📦',
+      title: 'Add samples',
+      substeps: [
+        'Select your dispatch date',
+        'Click "Add Sample"',
+        `Category → Finished product`,
+        `Sample Description → ${productName || '[product name]'}`,
+        'Enter the Batch Code',
+        'Testing Schedule → Default',
+        'Repeat for each additional sample',
+        'Click "Generate Barcodes" once all samples are added',
+      ],
+    },
+    {
+      key: 'submit',
+      icon: '✅',
+      title: 'Submit & pay',
+      substeps: [
+        'Click Next (bottom right)',
+        'Update package dropdown to match test type (e.g. Micro)',
+        'Click Submit (bottom right)',
+        'Review the preview page carefully — go back if anything looks wrong',
+        'Download the Submit Order Review page',
+        'Click the final Submit button',
+        'Complete the payment process',
+      ],
+    },
+    {
+      key: 'ship',
+      icon: '🚚',
+      title: 'Pack & ship via DHL',
+      substeps: [
+        'Print the Order Review page — it contains the barcodes',
+        'Place the barcode sheet inside the package',
+        'Label all bottles clearly',
+        'Pack bottles carefully to avoid breakages',
+        'Book DHL collection at dhl.com',
+      ],
+      address: true,
+    },
+  ]
+
+  const doneCount = Object.values(checked).filter(Boolean).length
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition text-left">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white text-base flex-shrink-0">📘</div>
+          <div>
+            <p className="text-sm font-bold text-gray-900">How to submit to Eurofins</p>
+            <p className="text-xs text-gray-400 mt-0.5">{STEPS.length} steps · {doneCount} of {STEPS.length} checked off</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {/* Mini progress */}
+          <div className="hidden sm:flex items-center gap-1.5">
+            {STEPS.map(s => (
+              <div key={s.key} className={`w-2 h-2 rounded-full transition-all ${checked[s.key] ? 'bg-green-500' : 'bg-gray-200'}`} />
+            ))}
+          </div>
+          <span className={`text-gray-400 text-xs transition-transform inline-block ${open ? 'rotate-180' : ''}`}>▼</span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100">
+          {/* Steps */}
+          <div className="px-6 py-5">
+            <div className="space-y-0">
+              {STEPS.map((s, i) => {
+                const done = !!checked[s.key]
+                const isLast = i === STEPS.length - 1
+                return (
+                  <div key={s.key} className="flex gap-4">
+                    {/* Left — connector line + circle */}
+                    <div className="flex flex-col items-center flex-shrink-0 w-9">
+                      <button
+                        onClick={() => toggleCheck(s.key)}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center text-base flex-shrink-0 border-2 transition-all ${
+                          done ? 'bg-green-500 border-green-500 text-white shadow-sm shadow-green-200' : 'bg-white border-gray-200 hover:border-gray-400'
+                        }`}>
+                        {done ? '✓' : s.icon}
+                      </button>
+                      {!isLast && <div className={`w-px flex-1 min-h-[20px] my-1 transition-colors ${done ? 'bg-green-200' : 'bg-gray-100'}`} />}
+                    </div>
+
+                    {/* Right — content */}
+                    <div className={`flex-1 min-w-0 pt-1.5 ${!isLast ? 'pb-6' : 'pb-0'}`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className={`text-sm font-semibold transition-colors ${done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                          {s.title}
+                        </p>
+                        {s.tag && !done && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${s.tag.color}`}>{s.tag.text}</span>
+                        )}
+                        {done && <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Done</span>}
+                      </div>
+
+                      {!done && (
+                        <>
+                          {s.body && <p className="text-sm text-gray-500 mt-1 leading-relaxed">{s.body}</p>}
+                          {s.substeps && (
+                            <div className="mt-2 space-y-1.5 pl-1">
+                              {s.substeps.map((sub, si) => (
+                                <div key={si} className="flex items-start gap-2.5">
+                                  <span className="text-[10px] font-bold text-gray-300 mt-1 flex-shrink-0">{si + 1}.</span>
+                                  <p className="text-sm text-gray-600 leading-relaxed">{sub}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {s.address && (
+                            <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Ship to</p>
+                                  <p className="text-sm font-semibold text-gray-900">Eurofins Food Testing UK Limited</p>
+                                  <p className="text-sm text-gray-600">54 Business Park, Valiant Way</p>
+                                  <p className="text-sm text-gray-600">Wolverhampton, WV9 5GB</p>
+                                  <p className="text-xs text-gray-400 mt-1.5">📦 Book DHL at dhl.com</p>
+                                </div>
+                                <button onClick={copyAddress}
+                                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition flex-shrink-0 ${copied ? 'bg-green-50 text-green-600 border-green-200' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
+                                  {copied ? '✓ Copied' : 'Copy'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className={`px-6 py-3.5 border-t transition-colors ${doneCount === STEPS.length ? 'bg-green-50 border-green-100' : 'bg-blue-50 border-blue-100'}`}>
+            {doneCount === STEPS.length ? (
+              <p className="text-xs text-green-700 font-semibold">🎉 All steps complete — don't forget to log the expected results date above so it shows on the calendar.</p>
+            ) : (
+              <p className="text-xs text-blue-700 font-medium">💡 Check off each step as you go. Once submitted, enter the expected results date above.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

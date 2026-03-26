@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import {
@@ -8,14 +7,23 @@ import {
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 
-const BRIEF_SECTIONS = [
-  { title: 'Overview',     fields: [{ key: 'productName', label: 'Product name' }, { key: 'productType', label: 'Product type' }, { key: 'productPurpose', label: 'Purpose' }, { key: 'inspiration', label: 'Inspiration' }, { key: 'launchDate', label: 'Launch date' }] },
-  { title: 'Flavour',      fields: [{ key: 'primaryFlavour', label: 'Primary flavour' }, { key: 'secondaryFlavour', label: 'Secondary notes' }, { key: 'flavourExclusions', label: 'Exclusions' }, { key: 'sweetness', label: 'Sweetness' }, { key: 'aftertaste', label: 'Finish' }, { key: 'flavourNotes', label: 'Flavour notes' }] },
-  { title: 'Appearance',   fields: [{ key: 'colourImportance', label: 'Colour importance' }, { key: 'colourDescription', label: 'Colour' }, { key: 'colourInDrink', label: 'Colour in drink' }, { key: 'clarity', label: 'Clarity' }, { key: 'colourReference', label: 'Colour reference' }] },
-  { title: 'Usage',        fields: [{ key: 'uses', label: 'Used in' }, { key: 'doseRate', label: 'Dose rate' }, { key: 'goesInMilk', label: 'Goes in milk' }, { key: 'milkType', label: 'Milk type' }, { key: 'texture', label: 'Texture' }, { key: 'performanceNotes', label: 'Performance notes' }] },
-  { title: 'Ingredients',  fields: [{ key: 'dietary', label: 'Dietary' }, { key: 'sugarBase', label: 'Sugar base' }, { key: 'preservatives', label: 'Preservatives' }, { key: 'ingredientRestrictions', label: 'Restrictions' }, { key: 'allergens', label: 'Allergens' }] },
-  { title: 'Practical',    fields: [{ key: 'packaging', label: 'Packaging' }, { key: 'pumpCompatible', label: 'Pump compatible' }, { key: 'storage', label: 'Storage' }, { key: 'shelfLife', label: 'Shelf life' }, { key: 'certifications', label: 'Certifications' }, { key: 'markets', label: 'Markets' }] },
-  { title: 'Commercial',   fields: [{ key: 'targetCost', label: 'Target cost' }, { key: 'expectedVolume', label: 'Volume' }, { key: 'samplesBy', label: 'Samples by' }, { key: 'sampleAddress', label: 'Sample address' }, { key: 'contactName', label: 'Contact' }, { key: 'contactEmail', label: 'Email' }, { key: 'contactPhone', label: 'Phone' }, { key: 'anythingElse', label: 'Other notes' }] },
+const SYRUP_BRIEF_SECTIONS = [
+  { title: 'Overview',     fields: [{ key: 'productName', label: 'Product name' }, { key: 'productType', label: 'Product type' }, { key: 'productPurpose', label: 'Purpose' }, { key: 'inspiration', label: 'Inspiration' }, { key: 'samplesNeededBy', label: 'Sample date' }, { key: 'distributorDate', label: 'Distributor date' }, { key: 'launchDate', label: 'Launch date' }] },
+  { title: 'Flavour',      fields: [{ key: 'primaryFlavour', label: 'Primary flavour' }, { key: 'secondaryFlavour', label: 'Secondary notes' }, { key: 'flavourExclusions', label: 'Exclusions' }, { key: 'sweetness', label: 'Sweetness' }, { key: 'aftertaste', label: 'Finish' }] },
+  { title: 'Appearance',   fields: [{ key: 'endDrinkType', label: 'End drink' }, { key: 'syrupColour', label: 'Syrup colour' }, { key: 'endDrinkColour', label: 'End drink colour' }, { key: 'clarity', label: 'Clarity' }, { key: 'colourReference', label: 'References' }] },
+  { title: 'Usage',        fields: [{ key: 'uses', label: 'Used in' }, { key: 'milkTypes', label: 'Milk types' }, { key: 'servingSizeRatio', label: 'Serving ratio' }, { key: 'doseRate', label: 'Dose rate' }, { key: 'hasFlavouringReq', label: 'Flavouring req?' }, { key: 'flavouringTypes', label: 'Flavouring types' }] },
+  { title: 'Ingredients',  fields: [{ key: 'dietary', label: 'Dietary' }, { key: 'sugarBase', label: 'Sugar base' }, { key: 'preservatives', label: 'Preservatives' }, { key: 'ingredientRestrictions', label: 'Restrictions' }, { key: 'allergens', label: 'Allergens' }, { key: 'productClaims', label: 'Product claims' }, { key: 'nutritionalClaims', label: 'Nutritional claims' }, { key: 'healthClaims', label: 'Health claims' }, { key: 'certRequired', label: 'Certifications?' }, { key: 'certDetails', label: 'Cert details' }] },
+  { title: 'Packaging',    fields: [{ key: 'standardBottleOk', label: 'Standard 750ml?' }, { key: 'bottleAlternative', label: 'Alternative format' }, { key: 'pumpCompatible', label: 'Pump compatible' }, { key: 'storage', label: 'Storage' }, { key: 'shelfLifeUnopened', label: 'Shelf life (unopened)' }, { key: 'shelfLifeOpen', label: 'Shelf life (open)' }, { key: 'markets', label: 'Markets' }] },
+  { title: 'Commercial',   fields: [{ key: 'targetCostMin', label: 'Target cost min' }, { key: 'targetCostMax', label: 'Target cost max' }, { key: 'casesPerMonth', label: 'Cases / month' }, { key: 'sampleName', label: 'Sample recipient' }, { key: 'sampleStreet', label: 'Address' }, { key: 'anythingElse', label: 'Other notes' }] },
+]
+
+const DRINK_BRIEF_SECTIONS = [
+  { title: 'Product',    fields: [{ key: 'productName', label: 'Product name' }, { key: 'productType', label: 'Type' }, { key: 'productPurpose', label: 'Why' }, { key: 'inspiration', label: 'Inspiration' }, { key: 'samplesNeededBy', label: 'Sample date' }, { key: 'launchDate', label: 'Launch date' }] },
+  { title: 'Formula',    fields: [{ key: 'flavourDirection', label: 'Flavour direction' }, { key: 'proteinTarget', label: 'Protein target (g)' }, { key: 'proteinBlend', label: 'Protein blend' }, { key: 'electrolytes', label: 'Electrolytes' }, { key: 'electrolytesDetail', label: 'Electrolyte detail' }, { key: 'sweetener', label: 'Sweetener' }, { key: 'carbonation', label: 'Carbonation' }, { key: 'formulaRestrictions', label: 'Restrictions' }] },
+  { title: 'Appearance', fields: [{ key: 'colourDirection', label: 'Colour direction' }, { key: 'clarity', label: 'Clarity' }, { key: 'visualReference', label: 'Visual references' }, { key: 'packagingAppearanceNotes', label: 'Packaging notes' }] },
+  { title: 'Format',     fields: [{ key: 'format', label: 'Format' }, { key: 'occasions', label: 'Occasions' }, { key: 'channels', label: 'Channels' }, { key: 'shelfLife', label: 'Shelf life' }, { key: 'storage', label: 'Storage' }] },
+  { title: 'Markets',    fields: [{ key: 'markets', label: 'Markets' }, { key: 'functionalClaims', label: 'Functional claims' }, { key: 'labelClaims', label: 'Label claims' }, { key: 'certifications', label: 'Certifications' }, { key: 'allergenNotes', label: 'Allergen notes' }] },
+  { title: 'Commercial', fields: [{ key: 'targetCostMin', label: 'Target cost min' }, { key: 'targetCostMax', label: 'Target cost max' }, { key: 'targetRrp', label: 'Target RRP' }, { key: 'initialVolume', label: 'Initial volume' }, { key: 'anythingElse', label: 'Other notes' }] },
 ]
 
 const PIPELINE = [
@@ -57,6 +65,7 @@ export default function ProductPage() {
   const [creating,      setCreating]      = useState(false)
   const [approvalModal, setApprovalModal] = useState(false)
   const [approveVersion,setApproveVersion]= useState('')
+  const [calPanel,      setCalPanel]      = useState(false)
 
   useEffect(() => { if (id) fetchAll() }, [id])
 
@@ -68,15 +77,55 @@ export default function ProductPage() {
       const p = { id: pSnap.id, ...pSnap.data() }
 
       if (p.briefId) {
-        const [bSnap, lSnap, vSnap] = await Promise.all([
+        const [bSnap, lSnap, vSnap, sSnap] = await Promise.all([
           getDoc(doc(db, 'briefs', p.briefId)),
           getDocs(query(collection(db, 'labSheets'), where('briefId', '==', p.briefId), orderBy('createdAt', 'desc'))),
           getDocs(query(collection(db, 'briefs', p.briefId, 'visits'), orderBy('visitedAt', 'desc'))),
+          getDocs(query(collection(db, 'scopingSheets'), where('productId', '==', id))),
         ])
         const b = bSnap.exists() ? { id: bSnap.id, ...bSnap.data() } : null
         setBrief(b)
         setLabSheets(lSnap.docs.map(d => ({ id: d.id, ...d.data() })))
         if (!vSnap.empty) setLastVisit(vSnap.docs[0].data().visitedAt)
+
+        // Pull expected delivery from scopingSheet ingredients and sync to product stages
+        if (!sSnap.empty) {
+          const scopingData = sSnap.docs[0].data()
+          const ingredients = scopingData.ingredients || []
+
+          const latestDate = ingredients
+            .filter(r => r.expectedDelivery)
+            .sort((a, b) => new Date(b.expectedDelivery) - new Date(a.expectedDelivery))[0]?.expectedDelivery
+          if (latestDate && latestDate !== p.stages?.scoping?.expectedDelivery) {
+            updateDoc(doc(db, 'products', id), { 'stages.scoping.expectedDelivery': latestDate }).catch(console.error)
+            p.stages = { ...p.stages, scoping: { ...p.stages?.scoping, expectedDelivery: latestDate } }
+          }
+
+          // Calculate estimated COG from ingredient costs
+          const fd = b?.formData || {}
+          const bottleVolumeMl = (() => {
+            if (p.productType === 'drink') {
+              const m = (fd.format || '').match(/(\d+)\s*ml/i)
+              return m ? parseInt(m[1]) : 330
+            }
+            if (fd.standardBottleOk === 'No — I need something different' && fd.bottleAlternative) {
+              const m = fd.bottleAlternative.match(/(\d+)\s*ml/i)
+              if (m) return parseInt(m[1])
+            }
+            return 750
+          })()
+          const costedRows = ingredients.filter(r => r.name?.trim() && r.costPerUnit && r.quantity)
+          if (costedRows.length > 0) {
+            const totalBatchCost = costedRows.reduce((sum, r) => sum + ((parseFloat(r.costPerUnit) || 0) * (parseFloat(r.quantity) || 0)), 0)
+            const batchVolumeMl = ingredients.reduce((sum, r) => {
+              const qty = parseFloat(r.quantity) || 0
+              return sum + (r.unit === 'L' ? qty * 1000 : qty)
+            }, 0)
+            const bottlesPerBatch = batchVolumeMl > 0 ? Math.floor(batchVolumeMl / bottleVolumeMl) : 0
+            const cogPerBottle = bottlesPerBatch > 0 ? totalBatchCost / bottlesPerBatch : 0
+            p._cog = { totalBatchCost, bottlesPerBatch, cogPerBottle, bottleVolumeMl, costedCount: costedRows.length, totalCount: ingredients.filter(r => r.name?.trim()).length }
+          }
+        }
 
         // Auto-heal: if brief is submitted but stages.brief isn't marked complete yet, fix it
         if (b?.submitted && p.stages?.brief?.status !== 'complete') {
@@ -189,6 +238,10 @@ export default function ProductPage() {
               <button onClick={copyBriefLink} className="px-3 sm:px-4 py-2 border border-white/20 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-white/10 transition hidden sm:block">
                 {copied ? '✓ Copied' : 'Copy brief link'}
               </button>
+              <button onClick={() => setCalPanel(true)} title="View dates"
+                className="w-8 h-8 flex items-center justify-center border border-white/20 text-white rounded-lg hover:bg-white/10 transition text-sm">
+                📅
+              </button>
               <button onClick={() => setDeleteConfirm(true)} className="px-3 sm:px-4 py-2 border border-red-500/30 text-red-400 text-xs sm:text-sm font-medium rounded-lg hover:bg-red-500/10 transition">Delete</button>
             </div>
           </div>
@@ -213,6 +266,43 @@ export default function ProductPage() {
         {/* ── Pipeline tab ── */}
         {activeTab === 'pipeline' && (
           <div className="space-y-3">
+            {/* COG KPI banner */}
+            {product._cog && (() => {
+              const { cogPerBottle, totalBatchCost, bottlesPerBatch, bottleVolumeMl, costedCount, totalCount } = product._cog
+              const targetMax = parseFloat(brief?.formData?.targetCostMax || 0)
+              const onTarget  = targetMax > 0 ? cogPerBottle <= targetMax : null
+              const partial   = costedCount < totalCount
+              return (
+                <div className={`rounded-2xl border px-5 py-4 flex flex-wrap items-center gap-6 ${onTarget === false ? 'bg-red-50 border-red-200' : onTarget ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Est. COG / bottle</p>
+                    <p className={`text-2xl font-bold mt-0.5 ${onTarget === false ? 'text-red-600' : onTarget ? 'text-green-700' : 'text-gray-900'}`}>
+                      £{cogPerBottle.toFixed(2)}
+                      <span className="text-sm font-normal text-gray-400 ml-1">{bottleVolumeMl}ml</span>
+                    </p>
+                    {targetMax > 0 && (
+                      <p className={`text-xs mt-0.5 font-medium ${onTarget === false ? 'text-red-500' : 'text-green-600'}`}>
+                        {onTarget ? `✓ Under £${targetMax.toFixed(2)} target` : `⚠ Over £${targetMax.toFixed(2)} target`}
+                      </p>
+                    )}
+                  </div>
+                  <div className="w-px h-8 bg-gray-200 hidden sm:block" />
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Batch cost</p>
+                    <p className="text-lg font-bold text-gray-900 mt-0.5">£{totalBatchCost.toFixed(2)}</p>
+                  </div>
+                  <div className="w-px h-8 bg-gray-200 hidden sm:block" />
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Bottles / batch</p>
+                    <p className="text-lg font-bold text-gray-900 mt-0.5">{bottlesPerBatch}</p>
+                  </div>
+                  {partial && (
+                    <p className="text-xs text-amber-600 ml-auto">⚠ {costedCount}/{totalCount} ingredients costed — partial estimate</p>
+                  )}
+                </div>
+              )
+            })()}
+
             {PIPELINE.map((stage, i) => {
               const status = stageStatus(product, stage.key)
               const style  = STATUS[status] || STATUS['not-started']
@@ -244,6 +334,17 @@ export default function ProductPage() {
                     ? `Awaiting delivery · expected ${new Date(expectedDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
                     : 'Awaiting delivery'
                 }
+                if (p === 'delivered-tracking') {
+                  if (expectedDate) {
+                    const d = new Date(expectedDate)
+                    const diff = Math.ceil((d - Date.now()) / 86400000)
+                    const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                    const countdown = diff < 0 ? ` · ${Math.abs(diff)}d overdue` : diff === 0 ? ' · today' : ` · in ${diff}d`
+                    sub = `Expected delivery: ${dateStr}${countdown}`
+                  } else {
+                    sub = 'Ingredients ordered · tracking delivery'
+                  }
+                }
                 if (p === 'delivered' || status === 'complete') {
                   const fmt = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
                   sub = deliveredAt
@@ -255,7 +356,8 @@ export default function ProductPage() {
               }
               if (stage.key === 'lab') {
                 const latest = labSheets[0]
-                if (latest) sub = `${labSheets.length} version${labSheets.length !== 1 ? 's' : ''}${signedOff ? ` · V${signedOff.versionNumber} signed off` : ''}`
+                if (status === 'not-started') sub = 'Waiting on development'
+                else if (latest) sub = `${labSheets.length} version${labSheets.length !== 1 ? 's' : ''}${signedOff ? ` · V${signedOff.versionNumber} signed off` : ' · in progress'}`
               }
               if (stage.key === 'sampleSending') {
                 const s = stages.sampleSending
@@ -354,7 +456,7 @@ export default function ProductPage() {
               </div>
             ) : (
               <div className="space-y-5">
-                {BRIEF_SECTIONS.map(section => {
+                {(product?.productType === 'drink' ? DRINK_BRIEF_SECTIONS : SYRUP_BRIEF_SECTIONS).map(section => {
                   const filled = section.fields.filter(f => {
                     const v = fd[f.key]
                     return v && v !== '' && !(Array.isArray(v) && v.length === 0)
@@ -411,6 +513,101 @@ export default function ProductPage() {
         </div>
       )}
 
+      {/* Calendar dates panel */}
+      {calPanel && (() => {
+        const fd = brief?.formData || {}
+        const s  = product.stages || {}
+        const rows = [
+          { label: 'Sample needed',          date: fd.samplesNeededBy || fd.samplesBy,           type: 'sample'     },
+          { label: 'Launch date',            date: fd.launchDate,                                 type: 'launch'     },
+          { label: 'Distributor date',       date: fd.distributorDate,                            type: 'distributor'},
+          { label: 'Ingredients due',        date: s.scoping?.expectedDelivery,                   type: 'ingredients'},
+          { label: 'Sample sent',            date: s.sampleSending?.sentAt,                       type: 'sampleSent' },
+          { label: 'Sample arrives',         date: s.sampleSending?.expectedArrival,              type: 'arrives'    },
+          { label: 'Client sign-off',        date: s.clientSignOff?.signedOffDate,                type: 'signoff'    },
+          { label: 'First order delivery',   date: s.clientSignOff?.targetDeliveryDate,           type: 'delivery'   },
+          { label: 'Production booked',      date: s.batchDecision?.productionDateBooked,         type: 'production' },
+          { label: 'Lab results due',        date: s.labTesting?.expectedResultsDate,             type: 'lab'        },
+        ].filter(r => r.date)
+        const today = new Date()
+        const colors = {
+          sample: '#3b82f6', launch: '#16a34a', distributor: '#d97706', ingredients: '#059669',
+          sampleSent: '#0ea5e9', arrives: '#7c3aed', signoff: '#db2777', delivery: '#0891b2',
+          production: '#ea580c', lab: '#dc2626',
+        }
+        const bgs = {
+          sample: '#eff6ff', launch: '#f0fdf4', distributor: '#fffbeb', ingredients: '#ecfdf5',
+          sampleSent: '#f0f9ff', arrives: '#f5f3ff', signoff: '#fdf2f8', delivery: '#ecfeff',
+          production: '#fff7ed', lab: '#fef2f2',
+        }
+        return (
+          <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setCalPanel(false)}>
+            <div className="w-full max-w-sm bg-white h-full shadow-2xl overflow-y-auto flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Key dates</p>
+                  <p className="text-base font-bold text-gray-900 mt-0.5">{product.productName}</p>
+                </div>
+                <button onClick={() => setCalPanel(false)} className="text-gray-400 hover:text-black transition text-xl leading-none">×</button>
+              </div>
+
+              {rows.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-6 py-12">
+                  <p className="text-3xl">📅</p>
+                  <p className="font-semibold text-gray-700">No dates set yet</p>
+                  <p className="text-sm text-gray-400">Dates from the brief and pipeline stages will appear here.</p>
+                </div>
+              ) : (
+                <div className="flex-1 divide-y divide-gray-50 py-2">
+                  {rows.sort((a, b) => new Date(a.date) - new Date(b.date)).map((r, i) => {
+                    const d    = new Date(r.date)
+                    const diff = Math.ceil((d - today) / 86400000)
+                    const past = diff < 0
+                    const soon = diff >= 0 && diff <= 7
+                    return (
+                      <div key={i} className="flex items-center gap-4 px-6 py-3.5">
+                        {/* Date box */}
+                        <div className="w-12 flex-shrink-0 text-center rounded-xl py-1.5" style={{ background: bgs[r.type] || '#f9f9f9' }}>
+                          <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: colors[r.type] || '#666' }}>
+                            {d.toLocaleDateString('en-GB', { month: 'short' })}
+                          </p>
+                          <p className="text-xl font-bold leading-none mt-0.5" style={{ color: colors[r.type] || '#333' }}>
+                            {d.getDate()}
+                          </p>
+                        </div>
+                        {/* Label + countdown */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">{r.label}</p>
+                          <p className={`text-xs mt-0.5 font-medium ${past ? 'text-gray-400' : soon ? 'text-red-500' : 'text-gray-400'}`}>
+                            {past
+                              ? `${Math.abs(diff)}d ago`
+                              : diff === 0
+                              ? 'Today'
+                              : `In ${diff} day${diff === 1 ? '' : 's'}`
+                            }
+                          </p>
+                        </div>
+                        {/* Status badge */}
+                        {past && <span className="text-[10px] text-gray-300 flex-shrink-0">past</span>}
+                        {!past && diff === 0 && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex-shrink-0">Today</span>}
+                        {!past && soon && diff > 0 && <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-full flex-shrink-0">Soon</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              <div className="px-6 py-4 border-t border-gray-100 flex-shrink-0">
+                <button onClick={() => { setCalPanel(false); router.push('/calendar') }}
+                  className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl hover:bg-gray-900 transition">
+                  Open full calendar →
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Delete confirm */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-50">
@@ -425,8 +622,6 @@ export default function ProductPage() {
           </div>
         </div>
       )}
-
-      <FeedbackWidget page="product" pageId={id} label={product ? `Product — ${product.productName}` : 'Product'} />
     </div>
   )
 }

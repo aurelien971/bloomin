@@ -51,10 +51,15 @@ export default function Step3Appearance({ data, onChange }) {
 
       <Field
         label="How should the syrup look in the bottle?"
-        hint="Clarity and texture of the neat syrup."
+        hint="Select all that apply."
       >
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {CLARITY.map(o => <Chip key={o} label={o} active={data.clarity === o} onClick={() => set('clarity', o)} />)}
+          {CLARITY.map(o => {
+            const curr = Array.isArray(data.clarity) ? data.clarity : (data.clarity ? [data.clarity] : [])
+            const active = curr.includes(o)
+            const toggle = () => set('clarity', active ? curr.filter(x => x !== o) : [...curr, o])
+            return <Chip key={o} label={o} active={active} onClick={toggle} />
+          })}
         </div>
       </Field>
 

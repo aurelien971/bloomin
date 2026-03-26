@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import FeedbackWidget from '../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import {
@@ -49,6 +48,11 @@ function statusOf(product, key) {
   return product?.stages?.[key]?.status || 'not-started'
 }
 
+function completionPct(product) {
+  const completed = STAGES.filter(s => statusOf(product, s.key) === 'complete').length
+  return Math.round((completed / STAGES.length) * 100)
+}
+
 function overallStatus(product) {
   const s = product?.stages || {}
   if (s.release?.status === 'complete')        return 'complete'
@@ -93,6 +97,16 @@ function getCurrentStatus(product) {
     const date = s.scoping?.expectedDelivery
     return { label: `Awaiting delivery${date ? ` · ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}` : ''}`, emoji: '📦' }
   }
+  if (s.scoping?.phase === 'delivered-tracking') {
+    const date = s.scoping?.expectedDelivery
+    if (date) {
+      const diff = Math.ceil((new Date(date) - Date.now()) / 86400000)
+      const dateStr = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+      const tag = diff < 0 ? `${Math.abs(diff)}d overdue` : diff === 0 ? 'today' : `${diff}d`
+      return { label: `Ingredients ordered · arrives ${dateStr} · ${tag}`, emoji: '🚛' }
+    }
+    return { label: 'Ingredients ordered · tracking delivery', emoji: '🚛' }
+  }
   if (s.scoping?.status === 'in-progress')
     return { label: 'Waiting on Dima · Ingredients & sourcing', emoji: '🧺' }
   if (s.brief?.status === 'in-progress')
@@ -115,59 +129,6 @@ function StagePipeline({ product }) {
         )
       })}
     </div>
-  )
-}
-
-function StageRow({ stage, product, onNavigate, onCopyLink, copied }) {
-  const status = statusOf(product, stage.key)
-  const style  = STATUS_STYLES[status] || STATUS_STYLES['not-started']
-
-  return (
-    <div className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
-      <div className="flex items-center gap-3">
-        <span className="text-base w-7 text-center">{stage.icon}</span>
-        <div>
-          <p className="text-sm font-semibold text-gray-800">{stage.label}</p>
-          {stage.key === 'lab' && product.stages?.lab?.signedOffVersion && (
-            <p className="text-xs text-gray-400">Signed off: V{product.stages.lab.signedOffVersion}</p>
-          )}
-          {stage.key === 'lab' && product.stages?.lab?.latestVersion && !product.stages?.lab?.signedOffVersion && (
-            <p className="text-xs text-gray-400">Latest: V{product.stages.lab.latestVersion}</p>
-          )}
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${style.badge}`}>{style.label}</span>
-        {stage.key === 'brief' && product.briefId && (
-          <button onClick={onCopyLink} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 font-medium transition">
-            {copied ? '✓ Copied' : 'Copy link'}
-          </button>
-        )}
-        {stage.key === 'lab' && product.briefId && (
-          <button onClick={() => onNavigate(`/lab/${product.briefId}`)} className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium transition">
-            Open →
-          </button>
-        )}
-        {(stage.key === 'handover' || stage.key === 'validation' || stage.key === 'release') && (
-          <span className="px-3 py-1.5 text-xs border border-gray-100 text-gray-300 rounded-lg font-medium">Coming soon</span>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function SidebarItem({ label, count, active, onClick, logo }) {
-  return (
-    <button onClick={onClick} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-2.5 ${active ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-100'}`}>
-      {logo
-        ? <div className="w-6 h-6 rounded-md flex-shrink-0 bg-white flex items-center justify-center overflow-hidden border border-gray-100">
-            <img src={logo} alt="" className="w-full h-full object-contain p-0.5" onError={e => e.target.style.display='none'} />
-          </div>
-        : <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${active ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-500'}`}>{label[0]}</div>
-      }
-      <span className="truncate">{label}</span>
-      <span className={`ml-auto text-xs flex-shrink-0 ${active ? 'text-white/60' : 'text-gray-400'}`}>{count}</span>
-    </button>
   )
 }
 
@@ -198,18 +159,21 @@ export default function Dashboard() {
 
   const [clients,          setClients]          = useState([])
   const [products,         setProducts]         = useState([])
+  const [rdItems,          setRdItems]          = useState([])
+  const [rdModal,          setRdModal]          = useState(false)
+  const [rdForm,           setRdForm]           = useState({})
+  const [rdEditId,         setRdEditId]         = useState(null)
+  const [rdSaving,         setRdSaving]         = useState(false)
   const [loading,          setLoading]          = useState(false)
 
-  const [activeClient,     setActiveClient]     = useState(null)
   const [filterClient,     setFilterClient]     = useState(null)
+  const [filterStatus,     setFilterStatus]     = useState(null)
+  const [filterType,       setFilterType]       = useState(null)
   const [sortBy,           setSortBy]           = useState('activity')
   const [viewMode,         setViewMode]         = useState('list')
   const [expanded,         setExpanded]         = useState(null)
   const [userMenuOpen,     setUserMenuOpen]     = useState(false)
   const [copied,           setCopied]           = useState(null)
-  const [allFeedback,      setAllFeedback]      = useState([])
-  const [feedbackOpen,     setFeedbackOpen]     = useState(false)
-  const [feedbackLoading,  setFeedbackLoading]  = useState(false)
 
   const [productModal,     setProductModal]     = useState(false)
   const [clientModal,      setClientModal]      = useState(false)
@@ -243,7 +207,6 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    // Fetch user list for login dropdown
     getDocs(collection(db, 'users')).then(snap => {
       const names = snap.docs.map(d => d.data().name).filter(Boolean).sort()
       setUserList(names)
@@ -267,25 +230,103 @@ export default function Dashboard() {
   const fetchAll = async () => {
     setLoading(true)
     try {
-      const [cSnap, pSnap] = await Promise.all([
+      const [cSnap, pSnap, rSnap, bSnap] = await Promise.all([
         getDocs(query(collection(db, 'clients'),  orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'products'), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'rdItems'),  orderBy('createdAt', 'desc'))),
+        getDocs(collection(db, 'briefs')),
       ])
-      setClients(cSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setProducts(pSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const clientList  = cSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const briefMap    = {}
+      bSnap.docs.forEach(d => { briefMap[d.id] = d.data() })
+      const productList = pSnap.docs.map(d => {
+        const p = { id: d.id, ...d.data() }
+        if (p.briefId && briefMap[p.briefId]) p.briefFormData = briefMap[p.briefId].formData || {}
+        return p
+      })
+      setClients(clientList)
+      setProducts(productList)
+      setRdItems(rSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     } catch (e) { console.error(e) }
     setLoading(false)
   }
 
-  const fetchFeedback = async () => {
-    setFeedbackLoading(true)
+  const saveRdItem = async () => {
+    if (!rdForm.productName?.trim() || !rdForm.clientId) return
+    setRdSaving(true)
+    const client = clients.find(c => c.id === rdForm.clientId)
+    let code = rdForm.code
+    if (!rdEditId) {
+      const existingCodes = new Set([...products.map(p => p.code), ...rdItems.map(r => r.code)].filter(Boolean))
+      do {
+        code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 23)]).join('')
+      } while (existingCodes.has(code))
+    }
+    const data = {
+      productName: rdForm.productName.trim(), clientId: rdForm.clientId,
+      clientName: client?.name || '', status: rdForm.status || 'sampling',
+      dueDate: rdForm.dueDate || '', notes: rdForm.notes || '',
+      assignedTo: rdForm.assignedTo || '', code,
+      createdAt: rdEditId ? rdForm.createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
     try {
-      const snap = await getDocs(query(collection(db, 'feedback'), where('status', '==', 'visible')))
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      docs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      setAllFeedback(docs)
+      if (rdEditId) {
+        await updateDoc(doc(db, 'rdItems', rdEditId), data)
+        setRdItems(r => r.map(i => i.id === rdEditId ? { id: rdEditId, ...data } : i))
+      } else {
+        const ref = await addDoc(collection(db, 'rdItems'), data)
+        setRdItems(r => [{ id: ref.id, ...data }, ...r])
+      }
     } catch (e) { console.error(e) }
-    setFeedbackLoading(false)
+    setRdSaving(false)
+    setRdModal(false); setRdForm({}); setRdEditId(null)
+  }
+
+  const deleteRdItem = async (id) => {
+    await deleteDoc(doc(db, 'rdItems', id))
+    setRdItems(r => r.filter(i => i.id !== id))
+  }
+
+  const promoteRdItem = async (item) => {
+    const client = clients.find(c => c.id === item.clientId)
+    if (!client) return
+    const existingCodes = new Set(products.map(p => p.code).filter(Boolean))
+    let code = item.code
+    if (!code || existingCodes.has(code)) {
+      do {
+        code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 23)]).join('')
+      } while (existingCodes.has(code))
+    }
+    try {
+      const briefRef = await addDoc(collection(db, 'briefs'), {
+        clientId: client.id, clientName: client.name,
+        clientLogoUrl: client.logoUrl || '', clientMarkets: client.markets || [],
+        productName: item.productName, productType: 'syrup', code,
+        submitted: false, formData: {}, createdAt: new Date().toISOString(),
+      })
+      const productRef = await addDoc(collection(db, 'products'), {
+        clientId: client.id, clientName: client.name,
+        productName: item.productName, productType: 'syrup',
+        owner: item.assignedTo || currentUser?.name || '',
+        code, briefId: briefRef.id, createdAt: new Date().toISOString(),
+        promotedFromRd: item.id,
+        stages: {
+          brief: { status: 'in-progress' }, scoping: { status: 'not-started' },
+          lab: { status: 'not-started' }, sampleSending: { status: 'not-started' },
+          clientSignOff: { status: 'not-started' }, validation: { status: 'not-started' },
+          batchDecision: { status: 'not-started' }, labTesting: { status: 'not-started' },
+          labelling: { status: 'not-started' }, release: { status: 'not-started' },
+        },
+      })
+      await updateDoc(briefRef, { productId: productRef.id })
+      await deleteDoc(doc(db, 'rdItems', item.id))
+      setRdItems(r => r.filter(i => i.id !== item.id))
+      await fetchAll()
+      navigator.clipboard.writeText(`${window.location.origin}/brief/${briefRef.id}`)
+      setCopied(briefRef.id); setTimeout(() => setCopied(null), 2500)
+      setExpanded(productRef.id)
+    } catch (e) { console.error(e); alert('Error promoting item') }
   }
 
   // ── Create product ────────────────────────────────────────────────────────
@@ -293,44 +334,29 @@ export default function Dashboard() {
   const createProduct = async () => {
     if (!selectedClientId || !newProductName.trim()) return
     const client = clients.find(c => c.id === selectedClientId)
-
-    // Generate unique 4-letter code — check for collisions
     const existing = new Set(products.map(p => p.code).filter(Boolean))
     let code
     do {
       code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 23)]).join('')
     } while (existing.has(code))
-
     try {
       const briefRef = await addDoc(collection(db, 'briefs'), {
         clientId: selectedClientId, clientName: client.name,
-        clientLogoUrl:  client.logoUrl  || '',
-        clientMarkets:  client.markets  || [],
-        productName:    newProductName.trim(),
-        productType:    newProductType,
-        code,
+        clientLogoUrl: client.logoUrl || '', clientMarkets: client.markets || [],
+        productName: newProductName.trim(), productType: newProductType, code,
         submitted: false, formData: { productCategory: newProductType }, createdAt: new Date().toISOString(),
       })
       const productRef = await addDoc(collection(db, 'products'), {
-        clientId:    selectedClientId,
-        clientName:  client.name,
-        productName: newProductName.trim(),
-        productType: newProductType,
-        owner:       newProductOwner || currentUser?.name || '',
-        code,
-        briefId:     briefRef.id,
-        createdAt:   new Date().toISOString(),
+        clientId: selectedClientId, clientName: client.name,
+        productName: newProductName.trim(), productType: newProductType,
+        owner: newProductOwner || currentUser?.name || '',
+        code, briefId: briefRef.id, createdAt: new Date().toISOString(),
         stages: {
-          brief:          { status: 'in-progress' },
-          scoping:        { status: 'not-started' },
-          lab:            { status: 'not-started' },
-          sampleSending:  { status: 'not-started' },
-          clientSignOff:  { status: 'not-started' },
-          validation:     { status: 'not-started' },
-          batchDecision:  { status: 'not-started' },
-          labTesting:     { status: 'not-started' },
-          labelling:      { status: 'not-started' },
-          release:        { status: 'not-started' },
+          brief: { status: 'in-progress' }, scoping: { status: 'not-started' },
+          lab: { status: 'not-started' }, sampleSending: { status: 'not-started' },
+          clientSignOff: { status: 'not-started' }, validation: { status: 'not-started' },
+          batchDecision: { status: 'not-started' }, labTesting: { status: 'not-started' },
+          labelling: { status: 'not-started' }, release: { status: 'not-started' },
         },
       })
       await updateDoc(briefRef, { productId: productRef.id })
@@ -399,7 +425,6 @@ export default function Dashboard() {
   // ── Sort + filter ─────────────────────────────────────────────────────────
 
   const nextDueDate = (p) => {
-    const fd = p.stages?.brief ? null : null // brief formData lives on brief doc, not product
     const dates = [
       p.stages?.sampleSending?.expectedArrival,
       p.stages?.clientSignOff?.targetDeliveryDate,
@@ -420,49 +445,27 @@ export default function Dashboard() {
       : new Date(p.createdAt || 0).getTime()
   }
 
-  const visibleProducts = (filterClient ? products.filter(p => p.clientId === filterClient.id) : products)
+  const visibleProducts = products
+    .filter(p => !filterClient || p.clientId === filterClient.id)
+    .filter(p => !filterStatus || overallStatus(p) === filterStatus)
+    .filter(p => !filterType   || p.productType === filterType)
     .slice()
     .sort((a, b) => {
       if (sortBy === 'activity') return lastActivity(b) - lastActivity(a)
       if (sortBy === 'due')      return nextDueDate(a) - nextDueDate(b)
       if (sortBy === 'name')     return a.productName.localeCompare(b.productName)
       if (sortBy === 'client')   return (a.clientName || '').localeCompare(b.clientName || '')
+      if (sortBy === 'pct-asc')  return completionPct(a) - completionPct(b)
+      if (sortBy === 'pct-desc') return completionPct(b) - completionPct(a)
       return 0
     })
-
-  // ── Timeline events ────────────────────────────────────────────────────────
-
-  const timelineEvents = products.flatMap(p => {
-    const events = []
-    const fd = p.briefFormData || {}
-    const add = (date, label, color) => {
-      if (!date) return
-      const d = new Date(date)
-      if (!isNaN(d)) events.push({ date: d, label, productName: p.productName, clientName: p.clientName, logoUrl: clients.find(c => c.id === p.clientId)?.logoUrl, productId: p.id, color })
-    }
-    add(fd.samplesNeededBy,   '🧪 Sample date',       'blue')
-    add(fd.distributorDate,   '🚚 Lands at distributor', 'amber')
-    add(fd.launchDate,        '🚀 In-store launch',    'green')
-    add(p.stages?.sampleSending?.expectedArrival, '📦 Sample arrives', 'purple')
-    add(p.stages?.clientSignOff?.targetDeliveryDate, '📋 First order delivery', 'teal')
-    add(p.stages?.batchDecision?.productionDateBooked, '🏭 Production booked', 'orange')
-    add(p.stages?.labTesting?.expectedResultsDate, '🔬 Lab results due', 'red')
-    return events
-  }).sort((a, b) => a.date - b.date)
-
-  const upcomingEvents = timelineEvents.filter(e => e.date >= new Date(Date.now() - 86400000 * 7)) // 7 days back
 
   // ── Login screen ──────────────────────────────────────────────────────────
 
   if (!authed) return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 gap-8">
       <Head><title>Bloomin — NPD</title></Head>
-      <img
-        src="/logo.png"
-        alt="Bloomin"
-        className="h-14 object-contain brightness-0 invert"
-        onError={e => e.target.style.display='none'}
-      />
+      <img src="/logo.png" alt="Bloomin" className="h-14 object-contain brightness-0 invert" onError={e => e.target.style.display='none'} />
       <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-sm space-y-6">
         <div className="text-center">
           <h1 className="text-xl font-bold text-gray-900">NPD Dashboard</h1>
@@ -489,24 +492,15 @@ export default function Dashboard() {
       {/* Header */}
       <div className="bg-black text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-
-          {/* Left — logo */}
           <img src="/logo.png" alt="Bloomin" className="h-6 object-contain brightness-0 invert flex-shrink-0" onError={e => e.target.style.display='none'} />
-
-          {/* Right */}
           <div className="flex items-center gap-3 flex-shrink-0">
             <button onClick={() => setProductModal(true)} disabled={clients.length === 0}
               className="px-4 py-1.5 bg-white text-black text-xs font-semibold rounded-lg hover:bg-gray-100 transition disabled:opacity-40">
               + New product
             </button>
-
-            {/* User dropdown */}
             {currentUser && (
               <div className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(o => !o)}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/10 transition"
-                >
+                <button onClick={() => setUserMenuOpen(o => !o)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/10 transition">
                   <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0">
                     {currentUser.name?.[0]?.toUpperCase()}
                   </div>
@@ -516,7 +510,6 @@ export default function Dashboard() {
                   </div>
                   <svg className="w-3 h-3 text-white/40 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                 </button>
-
                 {userMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
@@ -526,20 +519,11 @@ export default function Dashboard() {
                         <p className="text-xs text-gray-400">{currentUser.role}</p>
                       </div>
                       <div className="py-1">
-                        <button onClick={() => { router.push('/suppliers'); setUserMenuOpen(false) }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">
-                          View suppliers
-                        </button>
-                        <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true); setUserMenuOpen(false) }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">
-                          Add new client
-                        </button>
+                        <button onClick={() => { router.push('/suppliers'); setUserMenuOpen(false) }} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">View suppliers</button>
+                        <button onClick={() => { setEditingClient(null); setClientForm(EMPTY_CLIENT); setClientModal(true); setUserMenuOpen(false) }} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">Add new client</button>
                       </div>
                       <div className="border-t border-gray-100 py-1">
-                        <button onClick={() => { setAuthed(false); setCurrentUser(null); localStorage.removeItem('npd_auth'); localStorage.removeItem('npd_user'); setUserMenuOpen(false) }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition">
-                          Sign out
-                        </button>
+                        <button onClick={() => { setAuthed(false); setCurrentUser(null); localStorage.removeItem('npd_auth'); localStorage.removeItem('npd_user'); setUserMenuOpen(false) }} className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition">Sign out</button>
                       </div>
                     </div>
                   </>
@@ -550,108 +534,90 @@ export default function Dashboard() {
         </div>
       </div>
 
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full space-y-6">
-
-        {/* Admin feedback feed — Product Director only */}
-        {(currentUser?.role === 'Product Director' || currentUser?.name === 'Aurelien') && (
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <button
-              onClick={() => { setFeedbackOpen(o => !o); if (!feedbackOpen) fetchFeedback() }}
-              className="w-full px-5 py-3.5 flex items-center justify-between hover:bg-gray-50 transition"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm">💬</span>
-                <p className="text-sm font-semibold text-gray-800">Team Feedback</p>
-                {allFeedback.length > 0 && (
-                  <span className="text-xs bg-black text-white px-2 py-0.5 rounded-full font-semibold">{allFeedback.length}</span>
-                )}
-              </div>
-              <span className="text-xs text-gray-400">{feedbackOpen ? '▲ hide' : '▼ show all'}</span>
-            </button>
-            {feedbackOpen && (
-              <div className="border-t border-gray-100">
-                {feedbackLoading ? (
-                  <p className="text-xs text-gray-400 text-center py-6">Loading...</p>
-                ) : allFeedback.length === 0 ? (
-                  <p className="text-xs text-gray-400 text-center py-6">No feedback yet.</p>
-                ) : (
-                  <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-                    {allFeedback.map(item => (
-                      <div key={item.id} className="px-5 py-3 flex items-start gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                            <span className="text-xs font-semibold text-gray-800">{item.author}</span>
-                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{item.label || item.page}</span>
-                            <span className="text-xs text-gray-400">
-                              {new Date(item.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                            </span>
-                            {item.upvotes?.length > 0 && (
-                              <span className="text-xs text-gray-400">👍 {item.upvotes.length}</span>
-                            )}
-                          </div>
-                          <p className="text-sm text-gray-700">{item.text}</p>
-                        </div>
-                        <button
-                          onClick={async () => {
-                            await updateDoc(doc(db, 'feedback', item.id), { status: 'hidden' })
-                            setAllFeedback(f => f.filter(i => i.id !== item.id))
-                          }}
-                          className="text-xs text-gray-300 hover:text-gray-600 transition flex-shrink-0 mt-0.5"
-                        >
-                          Hide
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full space-y-6">
 
         {/* Controls bar */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-            <button onClick={() => setFilterClient(null)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${!filterClient ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'}`}>
-              All ({products.length})
-            </button>
-            {clients.map(c => {
-              const count = products.filter(p => p.clientId === c.id).length
-              if (count === 0) return null
-              return (
-                <button key={c.id} onClick={() => setFilterClient(filterClient?.id === c.id ? null : c)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition ${filterClient?.id === c.id ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'}`}>
-                  {c.logoUrl && <img src={c.logoUrl} alt="" className="w-3.5 h-3.5 rounded-full object-cover" onError={e => e.target.style.display='none'} />}
-                  {c.name} <span className="opacity-60">{count}</span>
-                </button>
-              )
-            })}
-            {clients.map(c => null).length === 0 && (
-              <button onClick={() => openEditClient(null)} className="text-xs text-gray-400 hover:text-black px-2 py-1 transition">✏️ Edit clients</button>
-            )}
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-              className="px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-black text-gray-600">
-              <option value="activity">↻ Latest activity</option>
-              <option value="due">⏱ Next due date</option>
-              <option value="name">A–Z Name</option>
-              <option value="client">A–Z Client</option>
-            </select>
-            <div className="flex rounded-xl border border-gray-200 overflow-hidden">
-              {[['list','☰'],['timeline','📅']].map(([v,icon]) => (
-                <button key={v} onClick={() => setViewMode(v)}
-                  className={`px-3 py-1.5 text-sm transition ${viewMode === v ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                  {icon}
-                </button>
-              ))}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+              <button onClick={() => { setViewMode('list'); setFilterClient(null); setFilterStatus(null); setFilterType(null) }}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${viewMode !== 'rd' ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+                Active ({products.length})
+              </button>
+              <button onClick={() => setViewMode('rd')}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${viewMode === 'rd' ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+                R&D ({rdItems.length})
+              </button>
+              {viewMode !== 'rd' && clients.map(c => {
+                const count = products.filter(p => p.clientId === c.id).length
+                if (count === 0) return null
+                return (
+                  <button key={c.id} onClick={() => setFilterClient(filterClient?.id === c.id ? null : c)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition ${filterClient?.id === c.id ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+                    {c.logoUrl && <img src={c.logoUrl} alt="" className="w-3.5 h-3.5 rounded-full object-cover" onError={e => e.target.style.display='none'} />}
+                    {c.name} <span className="opacity-60">{count}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {viewMode !== 'rd' && (
+                <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-black text-gray-600">
+                  <option value="activity">↻ Latest activity</option>
+                  <option value="due">⏱ Next due date</option>
+                  <option value="name">A–Z Name</option>
+                  <option value="client">A–Z Client</option>
+                  <option value="pct-desc">% Complete ↓</option>
+                  <option value="pct-asc">% Complete ↑</option>
+                </select>
+              )}
+              <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+                <button onClick={() => setViewMode('list')}
+                  className={`px-3 py-1.5 text-sm transition ${viewMode === 'list' ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>☰</button>
+              </div>
+              <button onClick={() => router.push('/calendar')} title="Open calendar"
+                className="w-8 h-8 flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-black transition text-sm">
+                📅
+              </button>
             </div>
           </div>
+
+          {viewMode !== 'rd' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-400 font-medium">Filter:</span>
+              {[
+                { val: 'in-progress', label: '🔄 In progress', style: 'bg-amber-50 text-amber-700 border-amber-200' },
+                { val: 'not-started', label: '⏸ Not started',  style: 'bg-gray-50 text-gray-500 border-gray-200'   },
+                { val: 'complete',    label: '✓ Complete',      style: 'bg-green-50 text-green-700 border-green-200' },
+              ].map(({ val, label, style }) => (
+                <button key={val} onClick={() => setFilterStatus(filterStatus === val ? null : val)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition ${filterStatus === val ? style : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                  {label}
+                </button>
+              ))}
+              <div className="w-px h-4 bg-gray-200 mx-1" />
+              {[
+                { val: 'syrup', label: '🫙 Syrup' },
+                { val: 'drink', label: '🥤 Drink' },
+                { val: 'other', label: '📦 Other' },
+              ].map(({ val, label }) => (
+                <button key={val} onClick={() => setFilterType(filterType === val ? null : val)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition ${filterType === val ? 'bg-black text-white border-black' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                  {label}
+                </button>
+              ))}
+              {(filterStatus || filterType || filterClient) && (
+                <button onClick={() => { setFilterStatus(null); setFilterType(null); setFilterClient(null) }}
+                  className="text-xs text-gray-400 hover:text-black transition ml-1 underline underline-offset-2">
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* ── LIST VIEW ───────────────────────────────────────────── */}
+        {/* ── LIST VIEW ─────────────────────────────────────────────────────── */}
         {viewMode === 'list' && (
           <div className="space-y-2">
             {visibleProducts.length === 0 ? (
@@ -661,13 +627,13 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-400 mt-1">{clients.length === 0 ? 'Then add your first product' : 'Hit "+ New product" to get started'}</p>
               </div>
             ) : visibleProducts.map(product => {
-              const overall = overallStatus(product)
-              const client  = clients.find(c => c.id === product.clientId)
-              const nd = nextDueDate(product)
+              const client = clients.find(c => c.id === product.clientId)
+              const pct    = completionPct(product)
+              const nd     = nextDueDate(product)
               const nextDueLabel = nd !== Infinity ? (() => {
-                const d = new Date(nd)
+                const d    = new Date(nd)
                 const diff = Math.ceil((d - Date.now()) / 86400000)
-                const str = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                const str  = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
                 if (diff < 0)  return { text: `${str} · overdue`, color: 'text-red-500' }
                 if (diff <= 7) return { text: `${str} · in ${diff}d`, color: 'text-amber-600' }
                 return { text: str, color: 'text-gray-400' }
@@ -692,24 +658,23 @@ export default function Dashboard() {
                           {nextDueLabel && <span className={`ml-2 font-medium ${nextDueLabel.color}`}>· {nextDueLabel.text}</span>}
                         </p>
                         {(() => {
-                          const ts = lastActivity(product)
+                          const ts   = lastActivity(product)
                           if (!ts || ts === new Date(product.createdAt || 0).getTime()) return null
-                          const d = new Date(ts)
+                          const d    = new Date(ts)
                           const diff = Math.floor((Date.now() - ts) / 60000)
-                          const label = diff < 1    ? 'just now'
-                                      : diff < 60   ? `${diff}m ago`
-                                      : diff < 1440 ? `${Math.floor(diff/60)}h ago`
-                                      : diff < 2880 ? 'yesterday'
-                                      : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                          const label = diff < 1 ? 'just now' : diff < 60 ? `${diff}m ago` : diff < 1440 ? `${Math.floor(diff/60)}h ago` : diff < 2880 ? 'yesterday' : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
                           return <p className="text-xs text-gray-300 mt-0.5">Updated {label}</p>
                         })()}
                       </div>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <StagePipeline product={product} />
-                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium hidden sm:inline ${STATUS_STYLES[overall].badge}`}>
-                        {STATUS_STYLES[overall].label}
-                      </span>
+                      <div className="hidden sm:flex flex-col items-end gap-1 w-16">
+                        <span className={`text-xs font-bold ${pct === 100 ? 'text-green-600' : pct > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{pct}%</span>
+                        <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-green-400' : pct > 0 ? 'bg-amber-400' : 'bg-gray-200'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
                       <span className="text-gray-300 text-sm">›</span>
                     </div>
                   </div>
@@ -719,68 +684,74 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── TIMELINE VIEW ───────────────────────────────────────── */}
-        {viewMode === 'timeline' && (
-          <div className="space-y-4">
-            {upcomingEvents.length === 0 ? (
-              <div className="bg-white border border-gray-200 rounded-2xl py-16 text-center">
-                <p className="text-3xl mb-3">📅</p>
-                <p className="font-semibold text-gray-700">No upcoming dates</p>
-                <p className="text-sm text-gray-400 mt-1">Dates from briefs and pipeline stages will appear here</p>
+        {/* ── R&D VIEW ──────────────────────────────────────────────────────── */}
+        {viewMode === 'rd' && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-400 px-1">Pre-pipeline — promote to NPD when ready</p>
+              {authed && (
+                <button onClick={() => { setRdForm({}); setRdEditId(null); setRdModal(true) }}
+                  className="text-xs px-3 py-1.5 bg-black text-white rounded-lg font-semibold hover:bg-gray-900 transition">
+                  + Add item
+                </button>
+              )}
+            </div>
+            {rdItems.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-2xl py-20 text-center">
+                <p className="text-3xl mb-3">🧫</p>
+                <p className="font-semibold text-gray-700">No R&D items yet</p>
+                <p className="text-sm text-gray-400 mt-1">Add products being sampled before brief stage</p>
               </div>
-            ) : (() => {
-              const byMonth = {}
-              upcomingEvents.forEach(e => {
-                const key = e.date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
-                if (!byMonth[key]) byMonth[key] = []
-                byMonth[key].push(e)
-              })
-              return Object.entries(byMonth).map(([month, events]) => (
-                <div key={month}>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 px-1">{month}</p>
-                  <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden divide-y divide-gray-50">
-                    {events.map((e, i) => {
-                      const cl = clients.find(c => c.name === e.clientName)
-                      const isToday = e.date.toDateString() === new Date().toDateString()
-                      const isPast  = e.date < new Date()
-                      const diff    = Math.ceil((e.date - Date.now()) / 86400000)
-                      return (
-                        <div key={i} onClick={() => router.push(`/product/${e.productId}`)}
-                          className={`px-5 py-3.5 flex items-center gap-4 cursor-pointer hover:bg-gray-50 transition ${isToday ? 'bg-amber-50' : ''}`}>
-                          <div className={`w-12 text-center flex-shrink-0 ${isPast ? 'opacity-40' : ''}`}>
-                            <p className="text-lg font-bold text-gray-900 leading-none">{e.date.getDate()}</p>
-                            <p className="text-xs text-gray-400">{e.date.toLocaleDateString('en-GB', { weekday: 'short' })}</p>
-                          </div>
-                          {cl?.logoUrl
-                            ? <img src={cl.logoUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" onError={ex => ex.target.style.display='none'} />
-                            : <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-400 flex-shrink-0">{e.clientName?.[0]}</div>
-                          }
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-900 truncate">{e.label} — {e.productName}</p>
-                            <p className="text-xs text-gray-400">{e.clientName}</p>
-                          </div>
-                          <div className="flex-shrink-0">
-                            {isToday
-                              ? <span className="text-xs bg-amber-400 text-white px-2 py-1 rounded-full font-semibold">Today</span>
-                              : isPast
-                              ? <span className="text-xs text-gray-300">Past</span>
-                              : diff <= 7
-                              ? <span className="text-xs bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded-full font-semibold">In {diff}d</span>
-                              : <span className="text-xs text-gray-400">In {diff}d</span>
-                            }
-                          </div>
+            ) : rdItems.map(item => {
+              const client = clients.find(c => c.id === item.clientId)
+              const statusStyles = {
+                sampling: 'bg-blue-50 text-blue-700 border-blue-200', tasting: 'bg-purple-50 text-purple-700 border-purple-200',
+                'on-hold': 'bg-amber-50 text-amber-700 border-amber-200', complete: 'bg-green-50 text-green-700 border-green-200',
+                'not-started': 'bg-gray-50 text-gray-500 border-gray-200',
+              }
+              const statusLabels = { sampling: 'Sampling', tasting: 'Being Tasted', 'on-hold': 'On Hold', complete: 'Complete', 'not-started': 'Not Started' }
+              return (
+                <div key={item.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden hover:border-gray-300 transition">
+                  <div className="px-5 py-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {client?.logoUrl
+                        ? <img src={client.logoUrl} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" onError={e => e.target.style.display='none'} />
+                        : <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-400 flex-shrink-0">{item.clientName?.[0] || '?'}</div>
+                      }
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-gray-900 truncate">{item.productName}</p>
+                          {item.code && <span className="text-xs font-mono font-bold text-gray-400 flex-shrink-0">#{item.code}</span>}
+                          {item.assignedTo && <span className="text-xs text-gray-400 hidden sm:inline">{item.assignedTo}</span>}
                         </div>
-                      )
-                    })}
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">
+                          {item.clientName}{item.dueDate ? ` · ${new Date(item.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}` : ''}
+                        </p>
+                        {item.notes && <p className="text-xs text-gray-300 truncate mt-0.5">{item.notes}</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <select value={item.status}
+                        onChange={async e => {
+                          const s = e.target.value
+                          await updateDoc(doc(db, 'rdItems', item.id), { status: s, updatedAt: new Date().toISOString() })
+                          setRdItems(r => r.map(i => i.id === item.id ? { ...i, status: s } : i))
+                        }}
+                        className={`text-xs font-semibold px-2.5 py-1 rounded-full border cursor-pointer focus:outline-none ${statusStyles[item.status] || statusStyles['not-started']}`}>
+                        {Object.entries(statusLabels).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                      <button onClick={() => { setRdForm(item); setRdEditId(item.id); setRdModal(true) }} className="text-xs text-gray-400 hover:text-black transition">Edit</button>
+                      <button onClick={() => promoteRdItem(item)} className="text-xs px-3 py-1.5 bg-black text-white rounded-full hover:bg-gray-800 transition font-semibold whitespace-nowrap">→ NPD</button>
+                      <button onClick={() => deleteRdItem(item.id)} className="text-gray-300 hover:text-red-500 transition text-base leading-none">✕</button>
+                    </div>
                   </div>
                 </div>
-              ))
-            })()}
+              )
+            })}
           </div>
         )}
 
       </div>
-
 
       {/* Delete confirm */}
       {deleteConfirm && (
@@ -808,7 +779,7 @@ export default function Dashboard() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Product type</label>
               <div className="flex gap-2">
-                {[{ key: 'syrup', label: '🫙 Syrup' }, { key: 'other', label: '📦 Other' }].map(t => (
+                {[{ key: 'syrup', label: '🫙 Syrup' }, { key: 'drink', label: '🥤 Drink' }, { key: 'other', label: '📦 Other' }].map(t => (
                   <button key={t.key} onClick={() => setNewProductType(t.key)}
                     className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold transition ${newProductType === t.key ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}>
                     {t.label}
@@ -834,13 +805,9 @@ export default function Dashboard() {
 
       {/* Client modal */}
       {clientModal && (
-        <Modal
-          title={editingClient ? 'Edit client' : 'New client'}
-          sub="This client will be available for all future products."
-        >
+        <Modal title={editingClient ? 'Edit client' : 'New client'} sub="This client will be available for all future products.">
           <div className="space-y-3">
             <input type="text" placeholder="Client name *" value={clientForm.name} onChange={e => setClientForm(f => ({ ...f, name: e.target.value }))} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
-
             <div className="space-y-2">
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Client logo</label>
               <div className="flex items-center gap-3">
@@ -863,9 +830,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-
             <input type="number" placeholder="Number of establishments" value={clientForm.establishments} onChange={e => setClientForm(f => ({ ...f, establishments: e.target.value }))} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
-
             <div className="space-y-2">
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Markets</label>
               <div className="flex gap-2">
@@ -889,7 +854,6 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-
             <textarea placeholder="Internal notes (optional)" value={clientForm.notes} onChange={e => setClientForm(f => ({ ...f, notes: e.target.value }))} rows={2} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none" />
           </div>
           <div className="flex gap-3 pt-2">
@@ -901,7 +865,58 @@ export default function Dashboard() {
         </Modal>
       )}
 
-      <FeedbackWidget page="dashboard" label="Dashboard" currentUser={currentUser} />
+      {/* R&D modal */}
+      {rdModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md space-y-4">
+            <h2 className="text-xl font-bold text-gray-900">{rdEditId ? 'Edit R&D item' : 'Add R&D item'}</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Product name *</label>
+                <input value={rdForm.productName || ''} onChange={e => setRdForm(f => ({ ...f, productName: e.target.value }))} placeholder="e.g. Blueberry Syrup" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Client *</label>
+                <select value={rdForm.clientId || ''} onChange={e => setRdForm(f => ({ ...f, clientId: e.target.value }))} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white">
+                  <option value="">Select client...</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Status</label>
+                <select value={rdForm.status || 'sampling'} onChange={e => setRdForm(f => ({ ...f, status: e.target.value }))} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white">
+                  <option value="not-started">Not Started</option>
+                  <option value="sampling">Sampling</option>
+                  <option value="tasting">Being Tasted</option>
+                  <option value="on-hold">On Hold</option>
+                  <option value="complete">Complete</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Due date</label>
+                  <input type="date" value={rdForm.dueDate || ''} onChange={e => setRdForm(f => ({ ...f, dueDate: e.target.value }))} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Assigned to</label>
+                  <input value={rdForm.assignedTo || ''} onChange={e => setRdForm(f => ({ ...f, assignedTo: e.target.value }))} placeholder="e.g. Dima" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Notes</label>
+                <textarea rows={3} value={rdForm.notes || ''} onChange={e => setRdForm(f => ({ ...f, notes: e.target.value }))} placeholder="e.g. Being tasted — waiting on client feedback." className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none" />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => { setRdModal(false); setRdForm({}); setRdEditId(null) }} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+              <button onClick={saveRdItem} disabled={rdSaving || !rdForm.productName?.trim() || !rdForm.clientId} className="flex-1 py-3 bg-black text-white rounded-xl text-sm font-semibold hover:bg-gray-900 transition disabled:opacity-40">
+                {rdSaving ? 'Saving...' : rdEditId ? 'Save changes' : 'Add item'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

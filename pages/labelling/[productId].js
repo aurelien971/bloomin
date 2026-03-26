@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import FeedbackWidget from '../../components/FeedbackWidget'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { doc, getDoc, collection, query, where, orderBy, getDocs, updateDoc } from 'firebase/firestore'
@@ -535,7 +534,6 @@ export default function LabellingPage() {
         </div>
 
       </div>
-      <FeedbackWidget page="labelling" label="Labelling" pageId={productId} />
     </div>
   )
 }

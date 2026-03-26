@@ -3,7 +3,6 @@ import { useRouter } from 'next/router'
 import { doc, getDoc, addDoc, collection } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import BriefForm from '../../components/BriefForm'
-import FeedbackWidget from '../../components/FeedbackWidget'
 import Head from 'next/head'
 
 const STEP_LABELS = [
@@ -78,11 +77,6 @@ export default function BriefPage() {
     <>
       <Head><title>Product Brief — {brief.clientName}</title></Head>
       <BriefForm brief={brief} onStepChange={setStep} />
-      <FeedbackWidget
-        page="brief"
-        pageId={brief.id}
-        label={STEP_LABELS[step] || 'Client Brief'}
-      />
     </>
   )
 }
