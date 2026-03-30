@@ -251,6 +251,7 @@ export default function ProductPage() {
             {[
               { key: 'pipeline',  label: 'Pipeline'      },
               { key: 'brief',     label: 'Client Brief'  },
+              { key: 'finance',   label: '💰 Finance'    },
               { key: 'resources', label: '📄 Resources'  },
             ].map(t => (
               <button key={t.key} onClick={() => setActiveTab(t.key)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition ${activeTab === t.key ? 'border-white text-white' : 'border-transparent text-white/40 hover:text-white/70'}`}>
@@ -482,6 +483,129 @@ export default function ProductPage() {
             )}
           </div>
         )}
+        {/* ── Finance tab ── */}
+        {activeTab === 'finance' && (() => {
+          const fd          = brief?.formData || {}
+          const cog         = product._cog
+          const targetRrp   = parseFloat(fd.targetRrp   || fd.targetCostMax && (parseFloat(fd.targetCostMax) * 3) || 0)
+          const targetCostMin = parseFloat(fd.targetCostMin || 0)
+          const targetCostMax = parseFloat(fd.targetCostMax || 0)
+          const cogPerBottle  = cog?.cogPerBottle || 0
+          const grossMargin   = targetRrp > 0 && cogPerBottle > 0 ? ((targetRrp - cogPerBottle) / targetRrp) * 100 : null
+          const onTarget      = targetCostMax > 0 ? cogPerBottle <= targetCostMax : null
+
+          return (
+            <div className="space-y-4">
+              {/* COG summary */}
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                  <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Cost of Goods</h2>
+                  {cog ? (
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${onTarget === false ? 'bg-red-50 text-red-600' : onTarget ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {onTarget === false ? '⚠ Over target' : onTarget ? '✓ On target' : 'No target set'}
+                    </span>
+                  ) : null}
+                </div>
+                {!cog ? (
+                  <div className="px-5 py-8 text-center">
+                    <p className="text-2xl mb-2">🧾</p>
+                    <p className="text-sm font-semibold text-gray-700">No cost data yet</p>
+                    <p className="text-sm text-gray-400 mt-1">Enter order costs on the <button onClick={() => router.push(`/scoping/${id}`)} className="text-black underline underline-offset-2">Ingredients & Sourcing</button> page to calculate COG.</p>
+                  </div>
+                ) : (
+                  <div className="px-5 py-5 grid grid-cols-2 sm:grid-cols-4 gap-5">
+                    {[
+                      { label: 'Total ingredient cost', value: `£${cog.totalBatchCost.toFixed(2)}`, sub: 'sum of order costs' },
+                      { label: 'Batch volume', value: `${cog.bottleVolumeMl}ml × ${cog.bottlesPerBatch}`, sub: 'bottles per batch' },
+                      { label: 'Est. COG / bottle', value: `£${cogPerBottle.toFixed(2)}`, sub: targetCostMax ? `Target: £${targetCostMax.toFixed(2)}` : null, highlight: onTarget === false ? 'red' : onTarget ? 'green' : null },
+                      { label: 'Ingredients costed', value: `${cog.costedCount} / ${cog.totalCount}`, sub: cog.costedCount < cog.totalCount ? 'partial — add more' : 'complete ✓' },
+                    ].map((item, i) => (
+                      <div key={i}>
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{item.label}</p>
+                        <p className={`text-xl font-bold ${item.highlight === 'red' ? 'text-red-600' : item.highlight === 'green' ? 'text-green-600' : 'text-gray-900'}`}>{item.value}</p>
+                        {item.sub && <p className="text-xs text-gray-400 mt-0.5">{item.sub}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Pricing & margin */}
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50">
+                  <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Pricing & Margin</h2>
+                </div>
+                <div className="px-5 py-5 grid grid-cols-2 sm:grid-cols-4 gap-5">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Target cost range</p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {targetCostMin || targetCostMax ? `£${targetCostMin.toFixed(2)} – £${targetCostMax.toFixed(2)}` : '—'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">from brief</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Target RRP</p>
+                    <p className="text-xl font-bold text-gray-900">{targetRrp > 0 ? `£${targetRrp.toFixed(2)}` : '—'}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">per bottle</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Gross margin</p>
+                    <p className={`text-xl font-bold ${grossMargin !== null ? (grossMargin >= 60 ? 'text-green-600' : grossMargin >= 40 ? 'text-amber-600' : 'text-red-600') : 'text-gray-400'}`}>
+                      {grossMargin !== null ? `${grossMargin.toFixed(1)}%` : '—'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">{grossMargin !== null ? (grossMargin >= 60 ? 'Healthy' : grossMargin >= 40 ? 'Tight' : 'Too low') : 'needs RRP + COG'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Contribution / bottle</p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {targetRrp > 0 && cogPerBottle > 0 ? `£${(targetRrp - cogPerBottle).toFixed(2)}` : '—'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">RRP minus COG</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Volume & revenue */}
+              {(fd.casesPerMonth || fd.initialVolume) && (
+                <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                  <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50">
+                    <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Volume & Revenue Estimate</h2>
+                  </div>
+                  <div className="px-5 py-5 grid grid-cols-2 sm:grid-cols-3 gap-5">
+                    {fd.casesPerMonth && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Target volume</p>
+                        <p className="text-xl font-bold text-gray-900">{fd.casesPerMonth}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">cases / month</p>
+                      </div>
+                    )}
+                    {fd.casesPerMonth && targetRrp > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Monthly revenue (est.)</p>
+                        <p className="text-xl font-bold text-gray-900">£{(parseFloat(fd.casesPerMonth) * 6 * targetRrp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">at {fd.casesPerMonth} cases × 6 × £{targetRrp.toFixed(2)}</p>
+                      </div>
+                    )}
+                    {fd.initialVolume && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Initial run size</p>
+                        <p className="text-xl font-bold text-gray-900">{fd.initialVolume}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">units</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {!cog && !targetRrp && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <p className="text-xs text-amber-700">💡 Fill in target RRP and cost range in the brief, then add ingredient order costs in Sourcing to unlock full P&L here.</p>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
         {/* ── Resources tab ── */}
         {activeTab === 'resources' && (
           <ResourcesTab product={product} brief={brief} labSheets={labSheets} productId={id} router={router} />

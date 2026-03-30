@@ -400,16 +400,19 @@ export default function ScopingPage() {
               </div>
               <div className="px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Costed ingredients</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Order costs entered</p>
                   <p className="text-xl font-bold text-gray-900">{costedRows.length}<span className="text-sm text-gray-400 font-normal"> / {ingredients.filter(r => r.name?.trim()).length}</span></p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">ingredients</p>
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Total batch cost</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Total ingredient cost</p>
                   <p className="text-xl font-bold text-gray-900">{hasCosts ? `£${totalBatchCost.toFixed(2)}` : '—'}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">sum of order costs</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Bottles per batch</p>
                   <p className="text-xl font-bold text-gray-900">{bottlesPerBatch ?? '—'}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{bottleVolumeMl}ml bottles</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Est. COG / bottle</p>
@@ -423,7 +426,7 @@ export default function ScopingPage() {
               </div>
               {costedRows.length < ingredients.filter(r => r.name?.trim()).length && (
                 <div className="px-5 pb-3">
-                  <p className="text-xs text-amber-600">⚠ {ingredients.filter(r => r.name?.trim()).length - costedRows.length} ingredient{ingredients.filter(r => r.name?.trim()).length - costedRows.length !== 1 ? 's' : ''} missing cost — COG is partial</p>
+                  <p className="text-xs text-amber-600">⚠ {ingredients.filter(r => r.name?.trim()).length - costedRows.length} ingredient{ingredients.filter(r => r.name?.trim()).length - costedRows.length !== 1 ? 's' : ''} missing order cost — COG is a partial estimate</p>
                 </div>
               )}
             </div>
@@ -691,17 +694,20 @@ function IngredientCard({ row, index, suppliers, readOnly, onChange, onSupplierC
             >
               {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
-            {/* Cost per unit */}
-            <div className="flex items-center gap-0 rounded-xl border border-green-200 bg-green-50/50 overflow-hidden flex-shrink-0">
-              <span className="px-2 text-xs font-semibold text-green-600 border-r border-green-200">£</span>
-              <input
-                disabled={readOnly} value={row.costPerUnit || ''}
-                onChange={e => onChange('costPerUnit', e.target.value)}
-                placeholder="cost / unit"
-                type="number" min="0" step="0.01"
-                title="Cost per kg / L / unit"
-                className="w-24 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-transparent disabled:bg-gray-50 disabled:text-gray-400"
-              />
+            {/* Cost — price paid for this order */}
+            <div className="flex flex-col gap-0.5 flex-shrink-0">
+              <span className="text-[10px] font-semibold text-green-600 uppercase tracking-wide leading-none">Order cost</span>
+              <div className="flex items-center gap-0 rounded-xl border border-green-200 bg-green-50/50 overflow-hidden">
+                <span className="px-2 text-xs font-semibold text-green-600 border-r border-green-200">£</span>
+                <input
+                  disabled={readOnly} value={row.costPerUnit || ''}
+                  onChange={e => onChange('costPerUnit', e.target.value)}
+                  placeholder={`for ${row.quantity || '?'} ${row.unit || ''}`}
+                  type="number" min="0" step="0.01"
+                  title={`Total price paid for ${row.quantity || '?'} ${row.unit || ''} of this ingredient`}
+                  className="w-28 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-transparent disabled:bg-gray-50 disabled:text-gray-400"
+                />
+              </div>
             </div>
             <input
               disabled={readOnly} value={row.notes}
