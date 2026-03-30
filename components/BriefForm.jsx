@@ -189,12 +189,59 @@ function AutoFillModal({ brief, onApply, onClose }) {
   const schema   = isDrink ? DRINK_SCHEMA : SYRUP_SCHEMA
   const apiKey   = process.env.NEXT_PUBLIC_OPENAI_API_KEY || ''
 
-  const readFile = (f) => {
+  const readFile = async (f) => {
     setFile(f)
-    const reader = new FileReader()
-    reader.onload = (e) => setText(e.target.result)
-    reader.readAsText(f)
+    const ext = f.name.split('.').pop().toLowerCase()
+    if (ext === 'pdf') {
+      setLoading(true)
+      setError('')
+      try {
+        const arrayBuffer = await f.arrayBuffer()
+        const text = await extractPdfText(new Uint8Array(arrayBuffer))
+        if (!text.trim()) throw new Error('No text found — this may be a scanned PDF')
+        setText(text)
+      } catch (e) {
+        setError(`PDF error: ${e.message}. Try copying and pasting the text directly.`)
+      }
+      setLoading(false)
+    } else {
+      const reader = new FileReader()
+      reader.onload = (e) => setText(e.target.result)
+      reader.readAsText(f)
+    }
   }
+
+  const extractPdfText = (data) => new Promise((resolve, reject) => {
+    const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+    const WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+
+    const run = () => {
+      const lib = window['pdfjs-dist/build/pdf']
+      if (!lib) { reject(new Error('PDF.js unavailable')); return }
+      lib.GlobalWorkerOptions.workerSrc = WORKER_URL
+      lib.getDocument({ data }).promise
+        .then(async (pdf) => {
+          let out = ''
+          for (let p = 1; p <= pdf.numPages; p++) {
+            const page = await pdf.getPage(p)
+            const content = await page.getTextContent()
+            out += content.items.map(i => i.str).join(' ') + '\n'
+          }
+          resolve(out.trim())
+        })
+        .catch(reject)
+    }
+
+    if (window['pdfjs-dist/build/pdf']) {
+      run()
+    } else {
+      const s = document.createElement('script')
+      s.src = PDFJS_URL
+      s.onload = run
+      s.onerror = () => reject(new Error('Could not load PDF.js from CDN'))
+      document.head.appendChild(s)
+    }
+  })
 
   const onDrop = (e) => {
     e.preventDefault(); setDragging(false)
@@ -245,7 +292,7 @@ function AutoFillModal({ brief, onApply, onClose }) {
     setLoading(true); setError(''); setResult(null)
 
     const systemPrompt = `You are a product brief extraction assistant for Bloomin, a functional food & drink company.
-Extract information from the provided text (email thread, meeting transcript, or notes) and return ONLY a valid JSON object.
+Extract information from the provided input (email thread, meeting transcript, notes, or document) and return ONLY a valid JSON object.
 Only include fields where you found clear, relevant information. Do not guess or invent data.
 Return null for fields you cannot determine. Do not include null fields in the output.
 The product type is: ${isDrink ? 'DRINK (protein soda)' : 'SYRUP (flavoured syrup for coffee shops)'}.
@@ -253,28 +300,15 @@ The product type is: ${isDrink ? 'DRINK (protein soda)' : 'SYRUP (flavoured syru
 JSON schema to populate:
 ${JSON.stringify(schema, null, 2)}`
 
-    const userPrompt = `Extract brief information from this text and return a JSON object:
-
----
-${input.slice(0, 12000)}
----
-
-Return ONLY the JSON object, no explanation, no markdown code blocks.`
-
     try {
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: 'gpt-4o',
-          temperature: 0.1,
-          max_tokens: 1500,
+          model: 'gpt-4o', temperature: 0.1, max_tokens: 1500,
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user',   content: userPrompt },
+            { role: 'user', content: `Extract brief information from this input and return a JSON object:\n\n---\n${input.slice(0, 14000)}\n---\n\nReturn ONLY the JSON object, no explanation, no markdown.` },
           ],
         }),
       })
@@ -362,18 +396,20 @@ Return ONLY the JSON object, no explanation, no markdown code blocks.`
                 onDrop={onDrop}
                 onClick={() => fileRef.current?.click()}
                 className={`relative border-2 border-dashed rounded-2xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${dragging ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'}`}>
-                <input ref={fileRef} type="file" accept=".txt,.md,.csv,.eml,.text" className="hidden"
+                <input ref={fileRef} type="file" accept=".txt,.md,.csv,.eml,.text,.pdf" className="hidden"
                   onChange={e => e.target.files?.[0] && readFile(e.target.files[0])} />
-                <span className="text-3xl">{file ? '📄' : '📎'}</span>
+                <span className="text-3xl">{loading && file ? '⏳' : file?.name.endsWith('.pdf') ? '📄' : file ? '📝' : '📎'}</span>
                 {file ? (
                   <div className="text-center">
                     <p className="text-sm font-semibold text-gray-800">{file.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{Math.round(file.size / 1024)}KB — click to replace</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {loading ? 'Extracting text from PDF…' : `${Math.round(file.size / 1024)}KB · ${text.length > 0 ? `${text.split(' ').length} words extracted` : 'click to replace'}`}
+                    </p>
                   </div>
                 ) : (
                   <div className="text-center">
-                    <p className="text-sm font-semibold text-gray-600">Drop a .txt or .md file here</p>
-                    <p className="text-xs text-gray-400 mt-0.5">or click to browse</p>
+                    <p className="text-sm font-semibold text-gray-600">Drop a file here</p>
+                    <p className="text-xs text-gray-400 mt-0.5">.txt · .md · .pdf · .csv — or click to browse</p>
                   </div>
                 )}
               </div>
