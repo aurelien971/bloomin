@@ -52,6 +52,11 @@ export default function ClientSignOffPage() {
           // Pre-fill delivery address from brief
           const fd = b.formData || {}
           set('deliveryAddress', [fd.sampleStreet, fd.sampleCity, fd.samplePostcode, fd.sampleCountry].filter(Boolean).join(', '))
+          // Pre-fill initial order volume and target delivery from brief (only if not already saved)
+          if (!p.stages?.clientSignOff || p.stages.clientSignOff.status !== 'complete') {
+            if (fd.casesPerMonth)    set('initialOrderVolume', fd.casesPerMonth)
+            if (fd.distributorDate) set('targetDeliveryDate', fd.distributorDate.split('T')[0])
+          }
         }
 
         const lSnap = await getDocs(query(
@@ -271,6 +276,9 @@ export default function ClientSignOffPage() {
                 <input type="number" min="0" value={form.initialOrderVolume} onChange={e => set('initialOrderVolume', e.target.value)} disabled={signedOff}
                   placeholder={fd.casesPerMonth || 'e.g. 50'}
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50" />
+                {fd.casesPerMonth && !signedOff && (
+                  <p className="text-xs text-gray-400 mt-1">📋 Brief: {fd.casesPerMonth} cases/month</p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Unit</label>
@@ -283,6 +291,9 @@ export default function ClientSignOffPage() {
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Target delivery</label>
                 <input type="date" value={form.targetDeliveryDate} onChange={e => set('targetDeliveryDate', e.target.value)} disabled={signedOff}
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50" />
+                {fd.distributorDate && !signedOff && (
+                  <p className="text-xs text-gray-400 mt-1">📋 Brief: {new Date(fd.distributorDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                )}
               </div>
             </div>
 

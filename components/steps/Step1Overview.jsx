@@ -1,12 +1,25 @@
+import { useContext } from 'react'
+import { FilterEmptyContext } from '../BriefForm'
 import { useState } from 'react'
+
+function HideIfFilled({ keys, data, children }) {
+  const filterEmpty = useContext(FilterEmptyContext)
+  if (!filterEmpty) return children
+  const isFilled = keys.some(k => {
+    const v = data[k]
+    if (v === null || v === undefined || v === '') return false
+    if (Array.isArray(v) && v.length === 0) return false
+    return true
+  })
+  return isFilled ? null : children
+}
 
 const PRODUCT_TYPE = ['One-time / LTO', 'Recurring / permanent', 'Seasonal (recurring annually)', "Don't know yet"]
 
-// Timeline rules (in days)
 const RULES = [
-  { from: 'samplesNeededBy', to: 'signoffDate',    label: 'Sample → Client sign-off',         minDays: 28, maxDays: 42,  hint: '4–6 weeks for tasting & sign-off' },
-  { from: 'signoffDate',     to: 'distributorDate', label: 'Sign-off → Lands at distributor',  minDays: 56, maxDays: 63,  hint: '~2 months for production & shipping' },
-  { from: 'distributorDate', to: 'launchDate',     label: 'Distributor → In-store launch',     minDays: 21, maxDays: 28,  hint: '3–4 weeks for distribution' },
+  { from: 'samplesNeededBy', to: 'signoffDate',    label: 'Sample → Client sign-off',        minDays: 28, maxDays: 42, hint: '4–6 weeks for tasting & sign-off' },
+  { from: 'signoffDate',     to: 'distributorDate', label: 'Sign-off → Lands at distributor', minDays: 56, maxDays: 63, hint: '~2 months for production & shipping' },
+  { from: 'distributorDate', to: 'launchDate',     label: 'Distributor → In-store launch',    minDays: 21, maxDays: 28, hint: '3–4 weeks for distribution' },
 ]
 
 function addDays(dateStr, days) {
@@ -29,15 +42,13 @@ function daysBetween(a, b) {
 export default function Step1Overview({ data, onChange }) {
   const set = (field, value) => onChange({ ...data, [field]: value })
 
-  // Compute suggested dates based on samplesNeededBy
   const suggested = {}
   if (data.samplesNeededBy) {
-    suggested.signoffDate    = addDays(data.samplesNeededBy, 35)   // 5 weeks midpoint
-    suggested.distributorDate = addDays(suggested.signoffDate, 60) // 2 months
-    suggested.launchDate     = addDays(suggested.distributorDate, 21) // 3 weeks
+    suggested.signoffDate     = addDays(data.samplesNeededBy, 35)
+    suggested.distributorDate = addDays(suggested.signoffDate, 60)
+    suggested.launchDate      = addDays(suggested.distributorDate, 21)
   }
 
-  // Timeline visualization dates — use actual if set, else suggested
   const timelineDates = {
     samplesNeededBy:  data.samplesNeededBy  || null,
     signoffDate:      data.signoffDate      || suggested.signoffDate || null,
@@ -45,34 +56,39 @@ export default function Step1Overview({ data, onChange }) {
     launchDate:       data.launchDate       || suggested.launchDate || null,
   }
 
-  const allSet = timelineDates.samplesNeededBy && timelineDates.distributorDate && timelineDates.launchDate
-
   return (
     <div className="space-y-6">
-      <Field label="Is this a one-off or an ongoing product?">
-        <div className="grid grid-cols-2 gap-2">
-          {PRODUCT_TYPE.map(o => <Chip key={o} label={o} active={data.productType === o} onClick={() => set('productType', o)} />)}
-        </div>
-      </Field>
 
-      <Field label="Why do you need this product?" hint="A new launch, replacing something, filling a gap on the menu?">
-        <textarea placeholder="e.g. We want something new for spring that works in our milk drinks" value={data.productPurpose || ''} onChange={e => set('productPurpose', e.target.value)} rows={3} />
-      </Field>
+      <HideIfFilled keys={['productType']} data={data}>
+        <Field label="Is this a one-off or an ongoing product?">
+          <div className="grid grid-cols-2 gap-2">
+            {PRODUCT_TYPE.map(o => <Chip key={o} label={o} active={data.productType === o} onClick={() => set('productType', o)} />)}
+          </div>
+        </Field>
+      </HideIfFilled>
 
-      <Field label="Is there anything that inspired this?" hint="A drink you've tasted, a brand you like, a vibe you're going for.">
-        <input placeholder="e.g. Like a matcha latte but more floral and less bitter" value={data.inspiration || ''} onChange={e => set('inspiration', e.target.value)} />
-      </Field>
+      <HideIfFilled keys={['productPurpose']} data={data}>
+        <Field label="Why do you need this product?" hint="A new launch, replacing something, filling a gap on the menu?">
+          <textarea placeholder="e.g. We want something new for spring that works in our milk drinks" value={data.productPurpose || ''} onChange={e => set('productPurpose', e.target.value)} rows={3} />
+        </Field>
+      </HideIfFilled>
+
+      <HideIfFilled keys={['inspiration']} data={data}>
+        <Field label="Is there anything that inspired this?" hint="A drink you've tasted, a brand you like, a vibe you're going for.">
+          <input placeholder="e.g. Like a matcha latte but more floral and less bitter" value={data.inspiration || ''} onChange={e => set('inspiration', e.target.value)} />
+        </Field>
+      </HideIfFilled>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
         <p className="text-xs font-semibold text-amber-800">These are your desired dates — not a commitment from us. We'll align on a realistic timeline once we've reviewed your brief.</p>
       </div>
 
-      {/* Sample date */}
-      <Field label="Desired sample date" hint="When would you ideally like to receive and taste the first physical samples?">
-        <input type="date" value={data.samplesNeededBy || ''} onChange={e => set('samplesNeededBy', e.target.value)} />
-      </Field>
+      <HideIfFilled keys={['samplesNeededBy']} data={data}>
+        <Field label="Desired sample date" hint="When would you ideally like to receive and taste the first physical samples?">
+          <input type="date" value={data.samplesNeededBy || ''} onChange={e => set('samplesNeededBy', e.target.value)} />
+        </Field>
+      </HideIfFilled>
 
-      {/* Timeline visual — shows once sample date is entered */}
       {data.samplesNeededBy && (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -84,17 +100,10 @@ export default function Step1Overview({ data, onChange }) {
               const fromDate = timelineDates[rule.from]
               const toDate   = timelineDates[rule.to]
               const actual   = daysBetween(fromDate, toDate)
-              const isSet    = !!(data[rule.from] && (rule.to === 'signoffDate' ? data.signoffDate : data[rule.to]))
               const onTrack  = actual !== null && actual >= rule.minDays
-              const tight    = actual !== null && actual < rule.minDays && actual > 0
-
               return (
                 <div key={i} className="flex items-start gap-3">
-                  <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs flex-shrink-0 font-bold ${
-                    !fromDate || !toDate ? 'bg-gray-200 text-gray-400'
-                    : onTrack ? 'bg-green-500 text-white'
-                    : 'bg-amber-400 text-white'
-                  }`}>
+                  <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs flex-shrink-0 font-bold ${!fromDate || !toDate ? 'bg-gray-200 text-gray-400' : onTrack ? 'bg-green-500 text-white' : 'bg-amber-400 text-white'}`}>
                     {!fromDate || !toDate ? '·' : onTrack ? '✓' : '!'}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -107,15 +116,9 @@ export default function Step1Overview({ data, onChange }) {
                       )}
                     </div>
                     <p className="text-[11px] text-gray-400 mt-0.5">{rule.hint}</p>
-                    {fromDate && toDate && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        {fmtDate(fromDate)} → {fmtDate(toDate)}
-                      </p>
-                    )}
-                    {/* Suggest button if this date isn't set yet */}
+                    {fromDate && toDate && <p className="text-[11px] text-gray-500 mt-0.5">{fmtDate(fromDate)} → {fmtDate(toDate)}</p>}
                     {fromDate && !data[rule.to] && rule.to !== 'signoffDate' && (
-                      <button type="button"
-                        onClick={() => set(rule.to, addDays(fromDate, rule.minDays))}
+                      <button type="button" onClick={() => set(rule.to, addDays(fromDate, rule.minDays))}
                         className="mt-1.5 text-[11px] text-green-600 font-semibold hover:text-green-800 transition underline underline-offset-2">
                         Suggest: {fmtDate(addDays(fromDate, rule.minDays))} →
                       </button>
@@ -128,32 +131,35 @@ export default function Step1Overview({ data, onChange }) {
         </div>
       )}
 
-      {/* Distributor + launch */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Desired date to land at distributor" hint="Products typically need to arrive at the distributor 3–4 weeks before in-store launch.">
-          <input type="date" value={data.distributorDate || ''} onChange={e => set('distributorDate', e.target.value)} />
-          {suggested.distributorDate && !data.distributorDate && (
-            <button type="button" onClick={() => set('distributorDate', suggested.distributorDate)}
-              className="mt-1.5 text-[11px] text-green-600 font-semibold hover:text-green-800 transition underline underline-offset-2 text-left">
-              Suggest: {fmtDate(suggested.distributorDate)} →
-            </button>
-          )}
-          {data.launchDate && data.distributorDate && data.distributorDate >= data.launchDate && (
-            <p className="text-xs text-red-500 mt-1">⚠ Must be before the in-store launch date</p>
-          )}
-        </Field>
-        <Field label="Desired in-store launch date" hint="When does this product need to go live in store or on the menu?">
-          <input type="date" value={data.launchDate || ''} onChange={e => set('launchDate', e.target.value)} />
-          {suggested.launchDate && !data.launchDate && (
-            <button type="button" onClick={() => set('launchDate', suggested.launchDate)}
-              className="mt-1.5 text-[11px] text-green-600 font-semibold hover:text-green-800 transition underline underline-offset-2 text-left">
-              Suggest: {fmtDate(suggested.launchDate)} →
-            </button>
-          )}
-          {data.distributorDate && data.launchDate && data.launchDate <= data.distributorDate && (
-            <p className="text-xs text-red-500 mt-1">⚠ Must be after the distributor arrival date</p>
-          )}
-        </Field>
+        <HideIfFilled keys={['distributorDate']} data={data}>
+          <Field label="Desired date to land at distributor" hint="Products typically need to arrive at the distributor 3–4 weeks before in-store launch.">
+            <input type="date" value={data.distributorDate || ''} onChange={e => set('distributorDate', e.target.value)} />
+            {suggested.distributorDate && !data.distributorDate && (
+              <button type="button" onClick={() => set('distributorDate', suggested.distributorDate)}
+                className="mt-1.5 text-[11px] text-green-600 font-semibold hover:text-green-800 transition underline underline-offset-2 text-left">
+                Suggest: {fmtDate(suggested.distributorDate)} →
+              </button>
+            )}
+            {data.launchDate && data.distributorDate && data.distributorDate >= data.launchDate && (
+              <p className="text-xs text-red-500 mt-1">⚠ Must be before the in-store launch date</p>
+            )}
+          </Field>
+        </HideIfFilled>
+        <HideIfFilled keys={['launchDate']} data={data}>
+          <Field label="Desired in-store launch date" hint="When does this product need to go live in store or on the menu?">
+            <input type="date" value={data.launchDate || ''} onChange={e => set('launchDate', e.target.value)} />
+            {suggested.launchDate && !data.launchDate && (
+              <button type="button" onClick={() => set('launchDate', suggested.launchDate)}
+                className="mt-1.5 text-[11px] text-green-600 font-semibold hover:text-green-800 transition underline underline-offset-2 text-left">
+                Suggest: {fmtDate(suggested.launchDate)} →
+              </button>
+            )}
+            {data.distributorDate && data.launchDate && data.launchDate <= data.distributorDate && (
+              <p className="text-xs text-red-500 mt-1">⚠ Must be after the distributor arrival date</p>
+            )}
+          </Field>
+        </HideIfFilled>
       </div>
     </div>
   )

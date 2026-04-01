@@ -315,6 +315,36 @@ export default function ValidationPage() {
               <Label>Production date</Label>
               <input type="date" value={b.date || ''} onChange={e => upd('date', e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-black" />
+              {/* Date context from brief */}
+              {(() => {
+                const distDate   = fd.distributorDate
+                const launchDate = fd.launchDate
+                if (!distDate && !launchDate) return null
+                const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                const diff = (d) => {
+                  const days = Math.ceil((new Date(d) - Date.now()) / 86400000)
+                  if (days < 0) return `${Math.abs(days)}d overdue`
+                  if (days === 0) return 'today'
+                  return `in ${days}d`
+                }
+                return (
+                  <div className="mt-2 space-y-1.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                    <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">Key dates from brief</p>
+                    {distDate && (
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-amber-700">🚚 Land at distributor</p>
+                        <p className="text-xs font-semibold text-amber-900">{fmt(distDate)} <span className="font-normal opacity-70">· {diff(distDate)}</span></p>
+                      </div>
+                    )}
+                    {launchDate && (
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-amber-700">🚀 In-store launch</p>
+                        <p className="text-xs font-semibold text-amber-900">{fmt(launchDate)} <span className="font-normal opacity-70">· {diff(launchDate)}</span></p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
             <div>
               <Label>Assessed by</Label>

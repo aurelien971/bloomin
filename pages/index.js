@@ -24,16 +24,17 @@ const TOP_MARKETS = [
 ]
 
 const STAGES = [
-  { key: 'brief',          label: 'Brief'          },
-  { key: 'scoping',        label: 'Ingredients'    },
-  { key: 'lab',            label: 'Lab'            },
-  { key: 'sampleSending',  label: 'Sample'         },
-  { key: 'clientSignOff',  label: 'Sign-off'       },
-  { key: 'validation',     label: 'Test Batch'     },
-  { key: 'batchDecision',  label: 'Decision'       },
-  { key: 'labTesting',     label: 'Lab Testing'    },
-  { key: 'labelling',      label: 'Labelling'      },
-  { key: 'release',        label: 'Released'       },
+  { key: 'brief',              label: 'Brief'               },
+  { key: 'scoping',            label: 'Ingredients'         },
+  { key: 'lab',                label: 'Lab'                 },
+  { key: 'sampleSending',      label: 'Sample'              },
+  { key: 'clientSignOff',      label: 'Sign-off'            },
+  { key: 'validation',         label: 'Test Batch'          },
+  { key: 'batchDecision',      label: 'Decision'            },
+  { key: 'labTesting',         label: 'Lab Testing'         },
+  { key: 'nutritionalTesting', label: 'Nutritional'         },
+  { key: 'labelling',          label: 'Labelling'           },
+  { key: 'release',            label: 'Released'            },
 ]
 
 const STATUS_STYLES = {
@@ -316,6 +317,7 @@ export default function Dashboard() {
           lab: { status: 'not-started' }, sampleSending: { status: 'not-started' },
           clientSignOff: { status: 'not-started' }, validation: { status: 'not-started' },
           batchDecision: { status: 'not-started' }, labTesting: { status: 'not-started' },
+          nutritionalTesting: { status: 'not-started' },
           labelling: { status: 'not-started' }, release: { status: 'not-started' },
         },
       })
@@ -356,6 +358,7 @@ export default function Dashboard() {
           lab: { status: 'not-started' }, sampleSending: { status: 'not-started' },
           clientSignOff: { status: 'not-started' }, validation: { status: 'not-started' },
           batchDecision: { status: 'not-started' }, labTesting: { status: 'not-started' },
+          nutritionalTesting: { status: 'not-started' },
           labelling: { status: 'not-started' }, release: { status: 'not-started' },
         },
       })

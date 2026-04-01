@@ -1140,6 +1140,11 @@ function IngredientCombobox({ value, disabled, suggestions, usedNames, onChange,
   }, [])
 
   const filtered = suggestions.filter(s => !search || s.name.toLowerCase().includes(search.toLowerCase()))
+  // Unused ingredients first, already-added ones at bottom
+  const sorted = [
+    ...filtered.filter(s => !usedNames.includes(s.name.trim().toLowerCase())),
+    ...filtered.filter(s =>  usedNames.includes(s.name.trim().toLowerCase())),
+  ]
 
   return (
     <div ref={ref} className="relative min-w-[160px]">
@@ -1154,17 +1159,19 @@ function IngredientCombobox({ value, disabled, suggestions, usedNames, onChange,
           {filtered.length === 0
             ? <p className="text-xs text-gray-400 px-4 py-3 text-center">No matches — type to add new</p>
             : <>
-                <p className="text-xs text-gray-400 px-3 pt-2.5 pb-1 font-medium">Ordered for this product</p>
-                {filtered.map((s, i) => {
+                <p className="text-xs text-gray-400 px-3 pt-2.5 pb-1 font-medium">
+                  Ordered for this product{sorted.filter(s => !usedNames.includes(s.name.trim().toLowerCase())).length > 0 ? ` · ${sorted.filter(s => !usedNames.includes(s.name.trim().toLowerCase())).length} not yet added` : ''}
+                </p>
+                {sorted.map((s, i) => {
                   const used = usedNames.includes(s.name.trim().toLowerCase())
                   return (
                     <button key={i} onMouseDown={e => { e.preventDefault(); if (!used) { onSelect(s); setOpen(false); setSearch(s.name) } }}
-                      className={`w-full text-left px-3 py-2.5 border-t border-gray-50 transition flex items-center justify-between gap-2 ${used ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50'}`}>
+                      className={`w-full text-left px-3 py-2.5 border-t border-gray-50 transition flex items-center justify-between gap-2 ${used ? 'opacity-40 cursor-not-allowed bg-gray-50' : 'hover:bg-blue-50'}`}>
                       <div>
                         <p className="text-sm font-medium text-gray-900">{s.name}</p>
                         {s.supplierName && <p className="text-xs text-gray-400">{s.supplierName}</p>}
                       </div>
-                      {used && <span className="text-xs text-gray-400">✓ added</span>}
+                      {used ? <span className="text-xs text-gray-400">✓ added</span> : <span className="text-xs text-blue-400">+ add</span>}
                     </button>
                   )
                 })}
@@ -1299,7 +1306,8 @@ function LabAutoFillModal({ brief, onApply, onClose }) {
   const mediaRef   = useRef(null)
   const chunksRef  = useRef([])
 
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY || ''
+  const apiKey = process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY || ''
+  const openAiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY || ''
 
   // ── File reading ───────────────────────────────────────────────────────────
   const readFile = async (f) => {
@@ -1352,7 +1360,7 @@ function LabAutoFillModal({ brief, onApply, onClose }) {
           form.append('model', 'whisper-1')
           const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${apiKey}` },
+            headers: { Authorization: `Bearer ${openAiKey}` },
             body: form,
           })
           const data = await res.json()
@@ -1391,32 +1399,24 @@ JSON schema:
 ${JSON.stringify(LAB_SCHEMA, null, 2)}`
 
     try {
-      let messages
-      if (isPdf) {
-        const b64 = input.replace('__PDF_BASE64__', '').split('__FILENAME__')[0]
-        messages = [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: [
-            { type: 'text', text: 'Extract lab sheet data from this PDF:' },
-            { type: 'image_url', image_url: { url: `data:application/pdf;base64,${b64}` } },
-          ]},
-        ]
-      } else {
-        messages = [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Extract lab data from this input:\n\n---\n${input.slice(0, 14000)}\n---\n\nReturn ONLY the JSON object, no markdown, no explanation.` },
-        ]
-      }
+      // Note: PDF base64 vision not supported by Anthropic — extract text first
+      const userContent = isPdf
+        ? 'Unable to read PDF directly — please paste the text content instead.'
+        : `Extract lab data from this input:\n\n---\n${input.slice(0, 14000)}\n---\n\nReturn ONLY the JSON object, no markdown, no explanation.`
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'gpt-4o', temperature: 0.1, max_tokens: 2000, messages }),
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6', max_tokens: 2000,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userContent }],
+        }),
       })
 
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || `OpenAI ${res.status}`) }
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || `Anthropic ${res.status}`) }
       const resp = await res.json()
-      const raw  = resp.choices?.[0]?.message?.content?.trim() || ''
+      const raw  = resp.content?.[0]?.text?.trim() || ''
       const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
       const parsed = JSON.parse(clean)
 

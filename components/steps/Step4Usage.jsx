@@ -1,3 +1,19 @@
+import { useContext } from 'react'
+import { FilterEmptyContext } from '../BriefForm'
+
+function HideIfFilled({ keys, data, children }) {
+  const filterEmpty = useContext(FilterEmptyContext)
+  if (!filterEmpty) return children
+  const isFilled = keys.some(k => {
+    const v = data[k]
+    if (v === null || v === undefined || v === '') return false
+    if (Array.isArray(v) && v.length === 0) return false
+    return true
+  })
+  if (isFilled) return null
+  return children
+}
+
 const USES = [
   'Hot milk drinks',
   'Cold milk drinks',
@@ -24,6 +40,7 @@ const END_DRINK_TO_USE = {
 
 export default function Step4Usage({ data, onChange }) {
   const set = (f, v) => onChange({ ...data, [f]: v })
+
 
   const toggle = (use) => {
     const curr = data.uses || []
@@ -57,6 +74,7 @@ export default function Step4Usage({ data, onChange }) {
         </div>
       )}
 
+      <HideIfFilled keys={['uses']} data={data}>
       <Field label="Where will this syrup be used?" hint="Select all that apply.">
         {inferredUse && !(data.uses || []).includes(inferredUse) && (
           <button type="button" onClick={() => toggle(inferredUse)}
@@ -81,8 +99,10 @@ export default function Step4Usage({ data, onChange }) {
             placeholder="Tell us more..." value={data.usesOther || ''} onChange={e => set('usesOther', e.target.value)} />
         )}
       </Field>
+      </HideIfFilled>
 
       {usesMilk && (
+        <HideIfFilled keys={['milkTypes']} data={data}>
         <Field label="What type of milk will it go into?" hint="Select all that apply — some syrups can split in certain milks, so this matters.">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {MILK_TYPES.map(t => (
@@ -97,8 +117,10 @@ export default function Step4Usage({ data, onChange }) {
               placeholder="Which other milk type?" value={data.milkTypeOther || ''} onChange={e => set('milkTypeOther', e.target.value)} />
           )}
         </Field>
+        </HideIfFilled>
       )}
 
+      <HideIfFilled keys={['servingSizeRatio']} data={data}>
       <Field label="Serving size and end drink recipe" hint="How much of each component goes into the full drink? e.g. 250ml oat milk + 5g matcha powder + 20ml syrup.">
         <textarea
           rows={3}
@@ -109,7 +131,9 @@ export default function Step4Usage({ data, onChange }) {
         />
         <p className="text-xs text-gray-400 mt-1">This helps our team match what you're making — leave blank if you haven't worked it out yet.</p>
       </Field>
+      </HideIfFilled>
 
+      <HideIfFilled keys={['hasFlavouringReq', 'flavouringTypes']} data={data}>
       <Field label="Do you have any flavouring requirements?" hint="e.g. natural only, no artificial flavourings, extracts only.">
         <div className="flex gap-2 mb-3">
           {['Yes', 'No preference'].map(o => (
@@ -136,6 +160,7 @@ export default function Step4Usage({ data, onChange }) {
           </div>
         )}
       </Field>
+      </HideIfFilled>
 
     </div>
   )

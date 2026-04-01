@@ -84,6 +84,7 @@ export default function LabellingPage() {
   const [activeTab,  setActiveTab]  = useState('allergens')
   const [data,       setData]       = useState(EMPTY_DATA())
   const [userList,   setUserList]   = useState([])
+  const [autoFill,   setAutoFill]   = useState(false)
   const fileRef = useRef(null)
 
   const labTestingDone = product?.stages?.labTesting?.status === 'complete'
@@ -228,6 +229,23 @@ export default function LabellingPage() {
             </p>
           )}
         </div>
+
+        {/* Auto-fill banner */}
+        {!done && (
+          <div className="bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-base flex-shrink-0">✨</div>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-gray-900">Auto-fill from label screenshots or PDF</p>
+                <p className="text-xs text-gray-500 mt-0.5">Drop a spec sheet, nutrition panel image, or existing label — AI extracts allergens, nutrition values, claims and more</p>
+              </div>
+            </div>
+            <button onClick={() => setAutoFill(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-semibold rounded-xl hover:opacity-90 transition shadow-sm shadow-violet-200 flex-shrink-0">
+              ✨ Auto-fill labelling
+            </button>
+          </div>
+        )}
 
         {/* Label ownership toggle */}
         <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
@@ -534,6 +552,40 @@ export default function LabellingPage() {
         </div>
 
       </div>
+
+      {/* Labelling AutoFill Modal */}
+      {autoFill && (
+        <LabellingAutoFillModal
+          product={product}
+          brief={brief}
+          allergenList={ALLERGENS}
+          nutrientList={NUTRIENT_ROWS}
+          onApply={(extracted) => {
+            setData(d => {
+              const merged = { ...d }
+              if (extracted.allergens) {
+                merged.allergens = { ...d.allergens }
+                Object.entries(extracted.allergens).forEach(([k, v]) => {
+                  if (merged.allergens[k] !== undefined) merged.allergens[k] = { ...merged.allergens[k], ...v }
+                })
+              }
+              if (extracted.targetNutrients) {
+                merged.targetNutrients = { ...d.targetNutrients }
+                Object.entries(extracted.targetNutrients).forEach(([k, v]) => {
+                  if (merged.targetNutrients[k] !== undefined) merged.targetNutrients[k] = { ...merged.targetNutrients[k], ...v }
+                })
+              }
+              if (extracted.servingSize)           merged.servingSize        = extracted.servingSize
+              if (extracted.claims?.length)         merged.claims             = extracted.claims
+              if (extracted.activeIngredients?.length) merged.activeIngredients = extracted.activeIngredients
+              if (extracted.notes)                 merged.notes              = extracted.notes
+              return merged
+            })
+            setAutoFill(false)
+          }}
+          onClose={() => setAutoFill(false)}
+        />
+      )}
     </div>
   )
 }
@@ -599,6 +651,360 @@ function NutritionalPanel({ title, subtitle, color, data, activeIngredients, ser
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Labelling AutoFill Modal ──────────────────────────────────────────────────
+function extractPdfText(data) {
+  return new Promise((resolve, reject) => {
+    const PDFJS_URL  = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+    const WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+    const run = () => {
+      const lib = window['pdfjs-dist/build/pdf']
+      if (!lib) { reject(new Error('PDF.js unavailable')); return }
+      lib.GlobalWorkerOptions.workerSrc = WORKER_URL
+      lib.getDocument({ data }).promise.then(async (pdf) => {
+        let out = ''
+        for (let p = 1; p <= pdf.numPages; p++) {
+          const page = await pdf.getPage(p)
+          const content = await page.getTextContent()
+          out += content.items.map(i => i.str).join(' ') + '\n'
+        }
+        resolve(out.trim())
+      }).catch(reject)
+    }
+    if (window['pdfjs-dist/build/pdf']) { run() }
+    else {
+      const s = document.createElement('script')
+      s.src = PDFJS_URL; s.onload = run
+      s.onerror = () => reject(new Error('Could not load PDF.js'))
+      document.head.appendChild(s)
+    }
+  })
+}
+
+function LabellingAutoFillModal({ product, brief, allergenList, nutrientList, onApply, onClose }) {
+  const [files,     setFiles]     = useState([])
+  const [text,      setText]      = useState('')
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState('')
+  const [result,    setResult]    = useState(null)
+  const [accepted,  setAccepted]  = useState({})
+  const [dragging,  setDragging]  = useState(false)
+  const dropRef  = useRef(null)
+  const fileRef  = useRef(null)
+  const apiKey   = process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY || ''
+  const openAiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY || ''
+
+  const readFileAsBase64 = (f) => new Promise((res, rej) => {
+    const r = new FileReader()
+    r.onload = e => res(e.target.result.split(',')[1])
+    r.onerror = rej
+    r.readAsDataURL(f)
+  })
+
+  const readFileAsText = async (f) => {
+    const ext = f.name.split('.').pop().toLowerCase()
+    if (ext === 'pdf') {
+      const ab = await f.arrayBuffer()
+      return await extractPdfText(new Uint8Array(ab))
+    }
+    return await new Promise((res, rej) => {
+      const r = new FileReader()
+      r.onload = e => res(e.target.result)
+      r.onerror = rej
+      r.readAsText(f)
+    })
+  }
+
+  const isImage = (f) => ['jpg','jpeg','png','webp','gif'].includes(f.name.split('.').pop().toLowerCase())
+
+  const addFiles = async (fileList) => {
+    for (const f of Array.from(fileList)) {
+      const id = f.name + '-' + Date.now()
+      setFiles(prev => [...prev, { id, name: f.name, status: 'reading', isImg: isImage(f) }])
+      try {
+        if (isImage(f)) {
+          const b64 = await readFileAsBase64(f)
+          const mime = `image/${f.name.split('.').pop().replace('jpg','jpeg')}`
+          setFiles(prev => prev.map(x => x.id === id ? { ...x, b64, mime, status: 'ready' } : x))
+        } else {
+          const t = await readFileAsText(f)
+          if (!t.trim()) throw new Error('No text extracted')
+          setFiles(prev => prev.map(x => x.id === id ? { ...x, text: t, status: 'ready' } : x))
+        }
+      } catch (e) {
+        setFiles(prev => prev.map(x => x.id === id ? { ...x, status: 'error', err: e.message } : x))
+      }
+    }
+  }
+
+  const onDrop = (e) => {
+    e.preventDefault(); setDragging(false)
+    if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files)
+  }
+
+  const SCHEMA = `{
+  "servingSize": "string — e.g. '20ml (2 pumps)'",
+  "allergens": {
+    ${allergenList.map(a => `"${a}": { "contains": "Yes or No", "crossContamination": "Yes or No" }`).join(',\n    ')}
+  },
+  "targetNutrients": {
+    ${nutrientList.map(r => `"${r.key}": { "per100": "string", "perServing": "string" }`).join(',\n    ')}
+  },
+  "claims": [{ "claim": "string", "permitted": "Yes or No", "ingredient": "string", "levelPerServe": "string" }],
+  "activeIngredients": [{ "name": "string", "per100": "string", "perServing": "string" }],
+  "notes": "string — any other labelling notes"
+}`
+
+  const extract = async () => {
+    const readyFiles = files.filter(f => f.status === 'ready')
+    const pasteText  = text.trim()
+    if (readyFiles.length === 0 && !pasteText) { setError('Add at least one file or paste text first.'); return }
+
+    setLoading(true); setError(''); setResult(null)
+
+    const systemPrompt = `You are a food labelling data extraction assistant for Bloomin, a UK functional food company.
+Extract labelling data from the provided input (label screenshot, nutrition panel image, spec sheet PDF, or text).
+Product: ${product?.productName} for ${product?.clientName}.
+Return ONLY valid JSON matching the schema. Only include fields where you found clear data. Omit nulls and empty fields.
+
+Schema:
+${SCHEMA}`
+
+    try {
+      let merged = {}
+
+      for (const f of readyFiles) {
+        let messages
+        if (f.isImg) {
+          messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: [
+              { type: 'text', text: 'Extract labelling data from this image. Return ONLY the JSON object.' },
+              { type: 'image_url', image_url: { url: `data:${f.mime};base64,${f.b64}` } },
+            ]},
+          ]
+        } else {
+          messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Extract labelling data from this text:\n\n---\n${f.text.slice(0, 12000)}\n---\n\nReturn ONLY the JSON object.` },
+          ]
+        }
+
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+          body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages }),
+        })
+
+        if (!res.ok) throw new Error(`API error ${res.status}`)
+        const resp = await res.json()
+        const raw  = resp.content?.find(b => b.type === 'text')?.text?.trim() || ''
+        const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+        try {
+          const parsed = JSON.parse(clean)
+          // Deep merge — don't overwrite already-found data
+          const deepMerge = (base, override) => {
+            const out = { ...base }
+            Object.entries(override || {}).forEach(([k, v]) => {
+              if (v === null || v === undefined || v === '') return
+              if (typeof v === 'object' && !Array.isArray(v) && typeof out[k] === 'object')
+                out[k] = deepMerge(out[k], v)
+              else if (out[k] === undefined || out[k] === '' || out[k] === null)
+                out[k] = v
+            })
+            return out
+          }
+          merged = deepMerge(merged, parsed)
+        } catch (e) { console.warn('Parse failed for', f.name) }
+      }
+
+      // Also extract from pasted text
+      if (pasteText) {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6', max_tokens: 1000,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Extract labelling data:\n\n---\n${pasteText.slice(0, 12000)}\n---\n\nReturn ONLY the JSON object.` },
+            ],
+          }),
+        })
+        if (res.ok) {
+          const resp = await res.json()
+          const raw  = resp.content?.find(b => b.type === 'text')?.text?.trim() || ''
+          const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+          try { merged = { ...JSON.parse(clean), ...merged } } catch (e) {}
+        }
+      }
+
+      if (Object.keys(merged).length === 0) {
+        setError("Couldn't extract any labelling data. Try a clearer image or paste the text.")
+        setLoading(false); return
+      }
+
+      // Build flat preview list
+      const preview = {}
+      if (merged.servingSize) preview['Serving size'] = merged.servingSize
+      if (merged.allergens) {
+        const withData = Object.entries(merged.allergens).filter(([, v]) => v.contains || v.crossContamination)
+        if (withData.length) preview[`Allergens (${withData.length})`] = withData.map(([k, v]) => `${k}: ${v.contains}${v.crossContamination === 'Yes' ? ' (cross-contam)' : ''}`).join(', ')
+      }
+      if (merged.targetNutrients) {
+        const withData = Object.entries(merged.targetNutrients).filter(([, v]) => v.per100)
+        if (withData.length) preview[`Nutrients (${withData.length})`] = withData.map(([k, v]) => `${k}: ${v.per100}/100`).join(', ')
+      }
+      if (merged.claims?.length) preview[`Claims (${merged.claims.length})`] = merged.claims.map(c => c.claim).join(', ')
+      if (merged.activeIngredients?.filter(a => a.name).length) preview[`Active ingredients`] = merged.activeIngredients.filter(a => a.name).map(a => a.name).join(', ')
+      if (merged.notes) preview['Notes'] = merged.notes
+
+      const init = {}
+      Object.keys(preview).forEach(k => { init[k] = true })
+      setAccepted(init)
+      setResult({ merged, preview })
+    } catch (e) { setError(e.message || 'Something went wrong.'); console.error(e) }
+    setLoading(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="px-7 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-lg">✨</div>
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Auto-fill labelling</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Drop screenshots, images or PDFs — supports multiple files</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-black transition text-2xl leading-none">×</button>
+        </div>
+
+        {!result ? (
+          <div className="flex-1 overflow-y-auto px-7 py-5 space-y-4">
+
+            {/* Drop zone */}
+            <div
+              ref={dropRef}
+              onDragOver={e => { e.preventDefault(); setDragging(true) }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              onClick={() => fileRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-6 flex flex-col items-center gap-2 cursor-pointer transition-all ${dragging ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'}`}>
+              <input ref={fileRef} type="file" accept="image/*,.pdf,.txt,.csv" multiple className="hidden"
+                onChange={e => e.target.files?.length && addFiles(e.target.files)} />
+              <span className="text-3xl">📸</span>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-gray-600">Drop files here</p>
+                <p className="text-xs text-gray-400 mt-0.5">Screenshots, photos, PDFs — multiple files supported</p>
+              </div>
+            </div>
+
+            {/* File queue */}
+            {files.length > 0 && (
+              <div className="space-y-1.5">
+                {files.map(f => (
+                  <div key={f.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${f.status === 'ready' ? 'border-green-200 bg-green-50' : f.status === 'error' ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
+                    <span className="text-base flex-shrink-0">{f.status === 'reading' ? '⏳' : f.status === 'error' ? '⚠️' : f.isImg ? '🖼️' : '📄'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 truncate">{f.name}</p>
+                      <p className={`text-xs mt-0.5 ${f.status === 'error' ? 'text-red-500' : 'text-gray-400'}`}>
+                        {f.status === 'reading' ? 'Reading…' : f.status === 'error' ? f.err : f.isImg ? 'Image ready' : `${f.text?.split(' ').length || 0} words extracted`}
+                      </p>
+                    </div>
+                    <button onClick={() => setFiles(p => p.filter(x => x.id !== f.id))}
+                      className="text-gray-300 hover:text-red-500 transition text-lg leading-none flex-shrink-0">×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-xs text-gray-400 font-medium">and / or paste text</span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
+
+            <textarea value={text} onChange={e => setText(e.target.value)} rows={4}
+              placeholder="Paste ingredient declaration, allergen statement, nutrition values..."
+              className="w-full px-4 py-3 rounded-2xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none text-gray-700 placeholder-gray-300" />
+
+            {error && <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3"><p className="text-sm text-red-700">{error}</p></div>}
+
+            <div className="flex items-center justify-between pt-1">
+              <p className="text-xs text-gray-400">
+                {(() => {
+                  const r = files.filter(f => f.status === 'ready').length + (text.trim() ? 1 : 0)
+                  return r > 0 ? `${r} source${r !== 1 ? 's' : ''} ready` : 'Add files or paste text'
+                })()}
+              </p>
+              <button onClick={extract} disabled={loading || (files.filter(f => f.status === 'ready').length === 0 && !text.trim())}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:opacity-90 transition disabled:opacity-40 shadow-md shadow-violet-200">
+                {loading
+                  ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Extracting…</>
+                  : <>✨ Extract & preview</>
+                }
+              </button>
+            </div>
+          </div>
+
+        ) : (
+          <>
+            <div className="px-7 pt-5 pb-3 flex-shrink-0">
+              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                <span className="text-lg">🎉</span>
+                <div>
+                  <p className="text-sm font-semibold text-green-800">Found {Object.keys(result.preview).length} sections — review and apply</p>
+                  <p className="text-xs text-green-600 mt-0.5">Uncheck anything you don't want applied. Existing data is merged, not replaced.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-7 pb-4 space-y-2">
+              {Object.entries(result.preview).map(([key, val]) => (
+                <label key={key} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${accepted[key] ? 'border-violet-200 bg-violet-50' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
+                  <input type="checkbox" checked={accepted[key] || false}
+                    onChange={e => setAccepted(a => ({ ...a, [key]: e.target.checked }))}
+                    className="mt-0.5 w-4 h-4 accent-violet-500 flex-shrink-0 cursor-pointer" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-0.5">{key}</p>
+                    <p className="text-sm text-gray-900 break-words leading-relaxed">{val}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <div className="px-7 py-4 border-t border-gray-100 flex items-center justify-between gap-3 flex-shrink-0">
+              <button onClick={() => { setResult(null); setError('') }}
+                className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+                ← Try again
+              </button>
+              <button
+                onClick={() => {
+                  // Only apply accepted sections
+                  const filtered = {}
+                  if (accepted['Serving size'])    filtered.servingSize = result.merged.servingSize
+                  if (Object.keys(accepted).some(k => k.startsWith('Allergens') && accepted[k])) filtered.allergens = result.merged.allergens
+                  if (Object.keys(accepted).some(k => k.startsWith('Nutrients') && accepted[k])) filtered.targetNutrients = result.merged.targetNutrients
+                  if (Object.keys(accepted).some(k => k.startsWith('Claims') && accepted[k])) filtered.claims = result.merged.claims
+                  if (Object.keys(accepted).some(k => k.startsWith('Active') && accepted[k])) filtered.activeIngredients = result.merged.activeIngredients
+                  if (accepted['Notes']) filtered.notes = result.merged.notes
+                  onApply(filtered)
+                }}
+                disabled={!Object.values(accepted).some(Boolean)}
+                className="px-6 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition disabled:opacity-40">
+                Apply to labelling ✓
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

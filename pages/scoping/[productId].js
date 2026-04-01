@@ -5,7 +5,8 @@ import {
   doc, getDoc, collection, query, where,
   getDocs, addDoc, updateDoc,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
+import { db, storage } from '../../lib/firebase'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 
 const UNITS = ['g', 'kg', 'ml', 'L', 'pcs', 'tbsp', 'tsp', 'oz']
 const EMPTY_ROW = () => ({
@@ -13,6 +14,7 @@ const EMPTY_ROW = () => ({
   supplierId: '', supplierName: '', notes: '',
   riskFactor: '',
   costPerUnit: '', costCurrency: '£',
+  specSheetUrl: '', specSheetName: '',
   ordered: false, orderedAt: '', orderCode: '',
   expectedDelivery: '', delivered: false, deliveredAt: '',
 })
@@ -817,6 +819,46 @@ function IngredientCard({ row, index, suppliers, readOnly, onChange, onSupplierC
               </div>
             )}
           </div>
+
+          {/* Spec sheet upload */}
+          {!readOnly && (
+            <div className="flex items-center gap-3 mt-1">
+              {row.specSheetUrl ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-xl flex-1">
+                  <span className="text-sm">📄</span>
+                  <a href={row.specSheetUrl} target="_blank" rel="noreferrer"
+                    className="text-xs font-semibold text-blue-700 hover:underline truncate flex-1">
+                    {row.specSheetName || 'Spec sheet'}
+                  </a>
+                  <button onClick={() => { onChange('specSheetUrl', ''); onChange('specSheetName', '') }}
+                    className="text-blue-400 hover:text-red-500 transition text-sm leading-none flex-shrink-0">×</button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 px-3 py-1.5 border border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition text-xs text-gray-400 font-medium">
+                  <span>📎</span> Attach spec sheet
+                  <input type="file" accept=".pdf,.doc,.docx,.xlsx,.csv" className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      try {
+                        const sRef = storageRef(storage, `specsheets/${Date.now()}_${file.name}`)
+                        await uploadBytes(sRef, file)
+                        const url = await getDownloadURL(sRef)
+                        onChange('specSheetUrl', url)
+                        onChange('specSheetName', file.name)
+                      } catch (err) { console.error('Spec sheet upload failed', err) }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          )}
+          {readOnly && row.specSheetUrl && (
+            <a href={row.specSheetUrl} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline mt-1">
+              📄 {row.specSheetName || 'View spec sheet'}
+            </a>
+          )}
         </div>
       )}
     </div>

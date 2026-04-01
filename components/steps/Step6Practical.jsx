@@ -1,9 +1,26 @@
+import { useContext } from 'react'
+import { FilterEmptyContext } from '../BriefForm'
+
+function HideIfFilled({ keys, data, children }) {
+  const filterEmpty = useContext(FilterEmptyContext)
+  if (!filterEmpty) return children
+  const isFilled = keys.some(k => {
+    const v = data[k]
+    if (v === null || v === undefined || v === '') return false
+    if (Array.isArray(v) && v.length === 0) return false
+    return true
+  })
+  if (isFilled) return null
+  return children
+}
+
 import { useState, useEffect } from 'react'
 
 const SHELF_LIFE_OPTIONS = ['3 months', '6 months', '12 months', '18 months', '24 months', 'Other']
 
 export default function Step6Practical({ data, onChange, brief }) {
   const set = (f, v) => onChange({ ...data, [f]: v })
+
 
   const toggle = (field, item) => {
     const curr = data[field] || []
@@ -20,6 +37,7 @@ export default function Step6Practical({ data, onChange, brief }) {
         <p className="text-xs font-semibold text-blue-800">Our standard format is a <strong>750ml glass bottle</strong>, shipped in cases of 6. Let us know below if this doesn't work for you.</p>
       </div>
 
+      <HideIfFilled keys={['standardBottleOk']} data={data}>
       <Field label="Is our standard 750ml glass bottle suitable?">
         <div className="flex gap-2">
           {['Yes', 'No — I need something different'].map(o => (
@@ -33,7 +51,9 @@ export default function Step6Practical({ data, onChange, brief }) {
         )}
         <p className="text-xs text-gray-400 mt-1">Note: alternative formats may affect lead times, MOQs and unit cost.</p>
       </Field>
+      </HideIfFilled>
 
+      <HideIfFilled keys={['pumpCompatible']} data={data}>
       <Field label="Does the bottle need to be pump compatible?">
         <div className="flex gap-2">
           {['Yes', 'No', 'Not sure'].map(o => (
@@ -41,7 +61,9 @@ export default function Step6Practical({ data, onChange, brief }) {
           ))}
         </div>
       </Field>
+      </HideIfFilled>
 
+      <HideIfFilled keys={['storage']} data={data}>
       <Field label="Storage — how will this be stored and distributed?">
         <div className="flex gap-2">
           {['Ambient', 'Refrigerated', 'Not sure'].map(o => (
@@ -49,10 +71,12 @@ export default function Step6Practical({ data, onChange, brief }) {
           ))}
         </div>
       </Field>
+      </HideIfFilled>
 
       {/* Shelf life — split open/unopened */}
       <div className="border border-gray-100 rounded-2xl p-5 space-y-4 bg-gray-50/50">
         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Shelf life</p>
+        <HideIfFilled keys={['shelfLifeUnopened']} data={data}>
         <Field label="Unopened shelf life" hint="From production date to best before — how long should it last sealed?">
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
             {SHELF_LIFE_OPTIONS.map(o => <Chip key={o} label={o} active={data.shelfLifeUnopened === o} onClick={() => set('shelfLifeUnopened', o)} />)}
@@ -62,6 +86,8 @@ export default function Step6Practical({ data, onChange, brief }) {
               placeholder="e.g. 9 months" value={data.shelfLifeUnopenedOther || ''} onChange={e => set('shelfLifeUnopenedOther', e.target.value)} />
           )}
         </Field>
+        </HideIfFilled>
+        <HideIfFilled keys={['shelfLifeOpen']} data={data}>
         <Field label="Open shelf life" hint="Once the bottle is opened and in use — fridge or back-bar.">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {['7 days', '2 weeks', '4 weeks', '3 months', 'Other'].map(o => (
@@ -73,12 +99,15 @@ export default function Step6Practical({ data, onChange, brief }) {
               placeholder="e.g. 6 weeks refrigerated" value={data.shelfLifeOpenOther || ''} onChange={e => set('shelfLifeOpenOther', e.target.value)} />
           )}
         </Field>
+        </HideIfFilled>
       </div>
 
       {/* Markets */}
+      <HideIfFilled keys={['markets']} data={data}>
       <Field label="Which markets is this going into?" hint="Your account markets are pre-loaded — tap × to remove any that don't apply to this product, and add extras below.">
         <MarketSelector data={data} set={set} clientMarkets={clientMarkets} />
       </Field>
+      </HideIfFilled>
 
     </div>
   )
