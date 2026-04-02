@@ -45,9 +45,9 @@ const SYRUP_SCHEMA = {
   productType:            'one of: One-time / LTO | Recurring / permanent | Seasonal (recurring annually) | Don\'t know yet',
   productPurpose:         'string — why this product, what opportunity',
   inspiration:            'string — any reference products or brands',
-  samplesNeededBy:        'string — date in YYYY-MM-DD format',
-  launchDate:             'string — date in YYYY-MM-DD format',
-  distributorDate:        'string — date lands at distributor YYYY-MM-DD',
+  samplesNeededBy:        'string — YYYY-MM-DD; if no year given assume current or next year (never past)',
+  launchDate:             'string — YYYY-MM-DD; if no year given assume current or next year (never past)',
+  distributorDate:        'string — YYYY-MM-DD; if no year given assume current or next year (never past)',
   // Flavour
   primaryFlavour:         'string — dominant flavour',
   secondaryFlavour:       'string — secondary flavour notes',
@@ -396,6 +396,8 @@ Return null for fields you cannot determine. Do not include null fields in the o
 The product type is: ${isDrink ? 'DRINK (protein soda)' : 'SYRUP (flavoured syrup for coffee shops)'}.
 
 Important inference rules — apply ALL of these:
+
+DATES: Today is ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}. When a date is mentioned without a year, always assume the current year (${new Date().getFullYear()}) unless the month has already passed — in that case assume next year (${new Date().getFullYear() + 1}). For example, if today is April 2026 and the doc says "launch January" → assume January ${new Date().getFullYear() + 1}. If it says "launch June" → assume June ${new Date().getFullYear()}. Never output a date in the past unless it is explicitly stated as historical. Always output dates as YYYY-MM-DD.
 
 FLAVOUR EXCLUSIONS: Extract from both explicit exclusion fields AND from organoleptic standards — the REJECT column taste descriptors describe what must NOT be present. Summarise these as flavour exclusions.
 
