@@ -309,7 +309,7 @@ export default function ValidationPage() {
                   : ['Red Distillery', 'Calyx', 'Voxel', 'Rhode Island'].map(f => <option key={f} value={f}>{f}</option>)
                 }
               </select>
-              {factories.length === 0 && <p className="text-xs text-amber-500 mt-1">Run seedFactories.js to load from DB</p>}
+              {factories.length === 0 && <p className="text-xs text-amber-600 mt-1">Loading factories from database…</p>}
             </div>
             <div>
               <Label>Production date</Label>

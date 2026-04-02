@@ -51,8 +51,8 @@ const SYRUP_SCHEMA = {
   // Flavour
   primaryFlavour:         'string — dominant flavour',
   secondaryFlavour:       'string — secondary flavour notes',
-  flavourExclusions:      'string — flavours to avoid',
-  sweetness:              'one of: Very sweet | Sweet | Balanced | Lightly sweet | Dry',
+  flavourExclusions:      'string — flavours to avoid; also extract from Organoleptic Standards REJECT column taste descriptors (e.g. "Fermented, yeasty, musty, metallic, overly sour/sharp" → "No fermented, yeasty, musty or metallic notes")',
+  sweetness:              'one of: Very sweet | Sweet | Balanced | Lightly sweet | Barely sweet',
   acidity:                'one of: None | Low | Medium | High',
   aftertaste:             'string — finish / aftertaste description',
   hasFlavouringReq:       'one of: Yes | No',
@@ -69,7 +69,7 @@ const SYRUP_SCHEMA = {
   doseRate:               'string — dose rate e.g. 15ml per 250ml',
   servingSizeRatio:       'string — serving size context',
   // Ingredients
-  dietary:                'array of: Vegan | Vegetarian | Gluten-free | Dairy-free | Kosher | Halal | None — infer from product description (e.g. "contains no animal products" → Vegan)',
+  dietary:                'array of: Vegan | Vegetarian | Gluten-free | Nut-free | Dairy-free | None — infer from product description (e.g. "contains no animal products" → Vegan)',
   sugarBase:              'array — ALL matching from: White sugar | Brown sugar | Coconut sugar | Agave / nectar | Date sugar | Maple | Honey | Other — infer ALL from ingredient declarations (e.g. "Agave Syrup, Coconut Sugar" → ["Agave / nectar", "Coconut sugar"])',
   preservatives:          'one of: Accepted | Preferred without | No preservatives | Not sure — infer from ingredient list (Potassium Sorbate / Sodium Benzoate present → "Accepted")',
   allergens:              'string — allergen statement, "None" if declared allergen-free',
@@ -81,7 +81,7 @@ const SYRUP_SCHEMA = {
   certDetails:            'string — certification body and certificate number if mentioned',
   certifications:         'array of: SALSA | BRC | Organic | Vegan Society | Kosher | Halal | None needed — infer from Manufacturer Certification or cert body fields',
   // Packaging
-  standardBottleOk:       'one of: Yes — standard 750ml glass bottle | No — I need something different — if Bottle Size is 750ml AND Bottle Type is Glass → "Yes — standard 750ml glass bottle"',
+  standardBottleOk:       'one of: Yes | No — I need something different — if Bottle Size is 750ml AND Bottle Type is Glass → "Yes", if bottle size differs or format differs → "No — I need something different"',
   bottleAlternative:      'string — describe alternative if not standard 750ml glass',
   pumpCompatible:         'one of: Yes | No | No preference — if Pump Size is mentioned → "Yes", if lid type is mentioned without pump → "No"',
   storage:                'one of: Ambient | Refrigerated | Not sure — "cool dry place" / "ambient" / "≤20°C" → Ambient',
@@ -89,8 +89,8 @@ const SYRUP_SCHEMA = {
   shelfLifeOpen:          'one of: 7 days | 2 weeks | 3 weeks | 4 weeks (1 month) | 6 weeks | 2 months | 3 months | Other — prefer TARGET ("Target: 1 month after opening" → "4 weeks (1 month)", "21 day open" → "3 weeks")',
   // Commercial
   markets:                'array of country/region names — "Global" → ["UK", "USA", "EU", "GCC"]',
-  targetCostMin:          'number — min cost per bottle, infer from lowest price listed across markets if no explicit cost range',
-  targetCostMax:          'number — max cost per bottle',
+  targetCostMin:          'number — min cost per bottle in GBP; if only one price known, use it for both min and max',
+  targetCostMax:          'number — max cost per bottle in GBP; if only one price known, use the same value as targetCostMin',
   targetRrp:              'number — target retail price per bottle in GBP if available, else primary market price (e.g. UK Price 7.90 GBP → 7.90)',
   priceCurrency:          'one of: GBP | USD | EUR — currency of the primary price',
   casesPerMonth:          'string — estimated monthly volume; sum forecasts if per-market volumes given (e.g. UK 1400L + EU 2700L + USA 1600L over period → estimate monthly cases)',
@@ -231,14 +231,24 @@ function displayVal(v) {
 }
 
 // ── AutoFill Modal ────────────────────────────────────────────────────────────
-function AutoFillModal({ brief, onApply, onClose }) {
-  const [files,      setFiles]      = useState([])  // { id, name, text, status }
-  const [pastedImages, setPastedImages] = useState([])  // { id, b64, mime, label }
+function AutoFillModal({ brief, onApply, onClose, reviewMode, lastExtraction }) {
+  const [files,      setFiles]      = useState([])
+  const [pastedImages, setPastedImages] = useState([])
   const [text,       setText]       = useState('')
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState('')
-  const [result,     setResult]     = useState(null)
-  const [accepted,   setAccepted]   = useState({})
+  const [result,     setResult]     = useState(() => {
+    if (reviewMode && lastExtraction) return { merged: lastExtraction.fields, isReview: true }
+    return null
+  })
+  const [accepted,   setAccepted]   = useState(() => {
+    if (reviewMode && lastExtraction) {
+      const init = {}
+      Object.keys(lastExtraction.fields).forEach(k => { init[k] = true })
+      return init
+    }
+    return {}
+  })
   const [dragging,   setDragging]   = useState(false)
   const [mode,       setMode]       = useState('text')
   const [recording,  setRecording]  = useState(false)
@@ -387,17 +397,19 @@ The product type is: ${isDrink ? 'DRINK (protein soda)' : 'SYRUP (flavoured syru
 
 Important inference rules — apply ALL of these:
 
+FLAVOUR EXCLUSIONS: Extract from both explicit exclusion fields AND from organoleptic standards — the REJECT column taste descriptors describe what must NOT be present. Summarise these as flavour exclusions.
+
 SUGAR BASE: Extract ALL sugars from ingredient list as an array. "Agave Syrup" → "Agave / nectar", "Coconut Sugar" → "Coconut sugar", "Honey" → "Honey" etc.
 
 DIETARY & PRODUCT CLAIMS: If dietary includes Vegan, also add "Vegan" to productClaims. "Non-GM materials" / "Non-GMO" → productClaims includes "Non-GMO". Organic certification → productClaims includes "Organic".
 
 PRESERVATIVES: Potassium Sorbate, Sodium Benzoate, Citric Acid used as preservative → "Accepted". "No preservatives" stated → "No preservatives".
 
-BOTTLE: If Bottle Size = 750ml AND Bottle Type = Glass (or "Glass Bottle") → standardBottleOk = "Yes — standard 750ml glass bottle". Any pump size mentioned → pumpCompatible = "Yes".
+BOTTLE: If Bottle Size = 750ml AND Bottle Type = Glass (or "Glass Bottle") → standardBottleOk = "Yes". If different size or format → "No — I need something different". Any pump size mentioned → pumpCompatible = "Yes".
 
 STORAGE: "cool dry place", "ambient", "store at ≤20°C", "room temperature" → storage = "Ambient". "refrigerate" / "chilled" → "Refrigerated".
 
-SHELF LIFE: ALWAYS prefer TARGET shelf life over trial batch. "Target: 6 months unopened" → shelfLifeUnopened = "6 months". "Target: 1 month after opening" → shelfLifeOpen = "4 weeks (1 month)". "21 days open" = 3 weeks → "3 weeks". Extract from any prose, table, or spec sheet text.
+SHELF LIFE: ALWAYS prefer TARGET shelf life over trial batch. "Target: 6 months unopened" → shelfLifeUnopened = "6 months". "Target: 1 month after opening" or "1 month open" → shelfLifeOpen = "4 weeks". "21 days open" → shelfLifeOpen = "4 weeks". ONLY valid shelfLifeOpen values: 7 days | 2 weeks | 4 weeks | 3 months | Other.
 
 PRICING: UK Price → targetRrp in GBP. If multiple market prices, use UK Price for targetRrp. Extract priceCurrency from the price currency mentioned.
 
@@ -486,7 +498,7 @@ ${JSON.stringify(schema, null, 2)}`
       const init = {}
       Object.keys(merged).forEach(k => { init[k] = true })
       setAccepted(init)
-      setResult(merged)
+      setResult({ merged })
     } catch (e) {
       setError(e.message || 'Something went wrong. Check your API key.')
       console.error(e)
@@ -495,11 +507,14 @@ ${JSON.stringify(schema, null, 2)}`
   }
 
   const applySelected = () => {
+    const source = result.merged || result  // handle both review and fresh extraction
     const toApply = {}
-    Object.entries(result).forEach(([k, v]) => {
+    Object.entries(source).forEach(([k, v]) => {
+      if (k === 'isReview') return  // skip meta field
       if (accepted[k]) toApply[k] = v
     })
-    onApply(toApply)
+    const sourceLabels = [...files.filter(f => f.status === 'ready').map(f => f.name), ...pastedImages.map(p => p.label), ...(text.trim() ? ['Pasted text'] : [])]
+    onApply(toApply, sourceLabels)
   }
 
   return (
@@ -668,17 +683,24 @@ ${JSON.stringify(schema, null, 2)}`
           /* ── Review stage ── */
           <div className="flex-1 overflow-y-auto flex flex-col">
             <div className="px-8 pt-5 pb-3 flex-shrink-0">
-              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
-                <span className="text-lg">🎉</span>
+              <div className={`border rounded-xl px-4 py-3 flex items-center gap-3 ${result.isReview ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200'}`}>
+                <span className="text-lg">{result.isReview ? '🕐' : '🎉'}</span>
                 <div>
-                  <p className="text-sm font-semibold text-green-800">Found {Object.keys(result).length} fields — review and apply</p>
-                  <p className="text-xs text-green-600 mt-0.5">Merged across {files.filter(f => f.status === 'ready').length + pastedImages.length + (text.trim() ? 1 : 0)} source{(files.filter(f => f.status === 'ready').length + pastedImages.length + (text.trim() ? 1 : 0)) !== 1 ? 's' : ''}. Uncheck anything you don't want.</p>
+                  <p className={`text-sm font-semibold ${result.isReview ? 'text-blue-800' : 'text-green-800'}`}>
+                    {result.isReview ? 'Last extraction — re-apply or adjust' : `Found ${Object.keys(result.merged || result).filter(k => k !== 'isReview').length} fields — review and apply`}
+                  </p>
+                  <p className={`text-xs mt-0.5 ${result.isReview ? 'text-blue-600' : 'text-green-600'}`}>
+                    {result.isReview
+                      ? `Applied at ${lastExtraction?.appliedAt}${lastExtraction?.sources?.length ? ' · Sources: ' + lastExtraction.sources.join(', ') : ''}`
+                      : `Uncheck anything you don't want applied.`
+                    }
+                  </p>
                 </div>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-8 pb-4 space-y-2">
-              {Object.entries(result).map(([key, val]) => {
+              {Object.entries(result.merged || result).filter(([k]) => k !== 'isReview').map(([key, val]) => {
                 const step = FIELD_STEP[key]
                 const stepColor = step ? (STEP_COLORS[step] || 'bg-gray-100 text-gray-500') : null
                 return (
@@ -699,12 +721,12 @@ ${JSON.stringify(schema, null, 2)}`
             </div>
 
             <div className="px-8 py-5 border-t border-gray-100 flex items-center justify-between gap-3 flex-shrink-0 bg-white">
-              <button onClick={() => { setResult(null); setError('') }}
+              <button onClick={() => { setResult(null); setError(''); setPastedImages([]); setFiles([]); setText('') }}
                 className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
-                ← Try again
+                {result.isReview ? '+ New extraction' : '← Try again'}
               </button>
               <div className="flex items-center gap-3">
-                <p className="text-xs text-gray-400">{Object.values(accepted).filter(Boolean).length} of {Object.keys(result).length} fields selected</p>
+                <p className="text-xs text-gray-400">{Object.values(accepted).filter(Boolean).length} of {Object.keys(result.merged || result).filter(k => k !== 'isReview').length} fields selected</p>
                 <button onClick={applySelected} disabled={!Object.values(accepted).some(Boolean)}
                   className="px-6 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition disabled:opacity-40">
                   Apply to brief ✓
@@ -753,10 +775,43 @@ export default function BriefForm({ brief, onStepChange }) {
   const next = () => goToStep(step + 1)
   const back = () => goToStep(step - 1)
 
-  const handleAutoFillApply = async (extracted) => {
-    const merged = { ...formData, ...extracted }
+  const [lastExtraction, setLastExtraction] = useState(brief.lastExtraction || null) // persisted to Firestore
+
+  const handleAutoFillApply = async (extracted, sources) => {
+    // Single price → set as both min and max
+    if (extracted.targetRrp && !extracted.targetCostMin && !extracted.targetCostMax) {
+      extracted.targetCostMin = extracted.targetRrp
+      extracted.targetCostMax = extracted.targetRrp
+    }
+    if (extracted.targetCostMin && !extracted.targetCostMax) extracted.targetCostMax = extracted.targetCostMin
+    if (extracted.targetCostMax && !extracted.targetCostMin) extracted.targetCostMin = extracted.targetCostMax
+
+    // contacts need deep merge not overwrite
+    const contactKeys = ['contact_npd', 'contact_supplyChain', 'contact_technical']
+    const mergeContacts = {}
+    contactKeys.forEach(k => {
+      if (extracted[k]) mergeContacts[k] = { ...(formData[k] || {}), ...extracted[k] }
+    })
+
+    // Normalise standardBottleOk — AI sometimes returns 'Yes' instead of full label
+    if (extracted.standardBottleOk === 'Yes') extracted.standardBottleOk = 'Yes — standard 750ml glass bottle'
+    if (extracted.standardBottleOk === 'No') extracted.standardBottleOk = 'No — I need something different'
+    // Normalise pumpCompatible
+    if (extracted.pumpCompatible === 'Yes' || extracted.pumpCompatible === 'yes') extracted.pumpCompatible = 'Yes'
+    // Single price → set as both min and max (already done above but also handle targetRrp only)
+    if (extracted.targetCostMin && !extracted.targetCostMax) extracted.targetCostMax = extracted.targetCostMin
+    if (extracted.targetCostMax && !extracted.targetCostMin) extracted.targetCostMin = extracted.targetCostMax
+    if (extracted.targetRrp && !extracted.targetCostMin && !extracted.targetCostMax) {
+      extracted.targetCostMin = extracted.targetRrp
+      extracted.targetCostMax = extracted.targetRrp
+    }
+
+    const merged = { ...formData, ...extracted, ...mergeContacts }
     setFormData(merged)
+    const extraction = { fields: extracted, sources, appliedAt: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) }
+    setLastExtraction(extraction)
     await save(merged)
+    try { await updateDoc(doc(db, 'briefs', brief.id), { lastExtraction: extraction }) } catch(e) {}
     setAutoFill(false)
   }
 
@@ -820,11 +875,13 @@ export default function BriefForm({ brief, onStepChange }) {
 
   return (
     <>
-      {autoFill && (
+      {(autoFill === true || autoFill === 'review') && (
         <AutoFillModal
           brief={brief}
-          onApply={handleAutoFillApply}
+          onApply={(extracted, sources) => handleAutoFillApply(extracted, sources)}
           onClose={() => setAutoFill(false)}
+          reviewMode={autoFill === 'review'}
+          lastExtraction={lastExtraction}
         />
       )}
 
@@ -858,10 +915,19 @@ export default function BriefForm({ brief, onStepChange }) {
                   </button>
                 )}
                 {/* Auto-fill button */}
-                <button onClick={() => setAutoFill(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition">
-                  ✨ Auto-fill
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setAutoFill(lastExtraction ? 'review' : true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition">
+                    ✨ Auto-fill{lastExtraction ? ' ·  last at ' + lastExtraction.appliedAt : ''}
+                  </button>
+                  {lastExtraction && (
+                    <button onClick={() => setAutoFill(true)}
+                      className="flex items-center gap-1 px-2 py-1.5 rounded-xl text-xs font-semibold border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 transition"
+                      title="New extraction">
+                      + New
+                    </button>
+                  )}
+                </div>
                 <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">{step + 1} / {STEPS.length}</span>
               </div>
             </div>

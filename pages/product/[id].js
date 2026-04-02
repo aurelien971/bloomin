@@ -925,6 +925,16 @@ function ResourcesTab({ product, brief, labSheets, productId, router }) {
       href:       `/print/labelling/${productId}`,
     },
     {
+      key:        'recipe',
+      title:      'Recipe & Production Card',
+      icon:       '👨‍🍳',
+      desc:       `Full recipe (BOM), process steps, analytical specs, production considerations and facility suitability${signedSheet ? ` — V${signedSheet.versionNumber} ${signedSheet.versionName || ''}` : ''}.`,
+      available:  labSheets.length > 0 && (signedSheet?.data?.ingredients?.some(r => r.ingredient?.trim()) || false),
+      status:     signedSheet ? 'complete' : labSheets.length > 0 ? 'in-progress' : 'pending',
+      statusLabel:signedSheet ? `V${signedSheet.versionNumber} signed off` : labSheets.length > 0 ? 'Draft' : 'No recipe yet',
+      href:       `/print/recipe/${productId}`,
+    },
+    {
       key:        'release',
       title:      'Full Product Spec Sheet',
       icon:       '📊',
